@@ -58,6 +58,9 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/components/ResetServer/ components/Re
 add_subdirectory(
     ${CMAKE_CURRENT_LIST_DIR}/plat_components/tx2/BPMPServer/ plat_components/tx2/BPMPServer
 )
+add_subdirectory(
+    ${CMAKE_CURRENT_LIST_DIR}/components/modules/lwip-base/ components/modules/lwip-base
+)
 
 include(${CMAKE_CURRENT_LIST_DIR}/components/PCIConfigIO/CMakeLists.txt)
 include(${CMAKE_CURRENT_LIST_DIR}/components/RTC/CMakeLists.txt)
