@@ -46,6 +46,10 @@ add_subdirectory(
     ${CMAKE_CURRENT_LIST_DIR}/remote-drivers/lwip-socket-sync/ remote-drivers/lwip-socket-sync
 )
 add_subdirectory(
+    ${CMAKE_CURRENT_LIST_DIR}/remote-drivers/lwip-ethernet-async/
+    remote-drivers/lwip-ethernet-async
+)
+add_subdirectory(
     ${CMAKE_CURRENT_LIST_DIR}/components/modules/picotcp-base/ components/modules/picotcp-base
 )
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/components/ClockServer/ components/ClockServer)
