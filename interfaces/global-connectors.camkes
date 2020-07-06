@@ -382,8 +382,8 @@ connector seL4VirtQueues {
  * seL4MessageQueue connections.
  */
 connector seL4MessageQueue {
-    from Dataports;
-    to Dataports;
+    from Dataports with 0 threads;
+    to Dataports with 0 threads;
 }
 
 /** seL4GlobalAsynchHardwareInterrupt

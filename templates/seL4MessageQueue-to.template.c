@@ -58,7 +58,7 @@ static void _/*? me.interface.name ?*/_wait()
     seL4_Wait(/*? receiver_ntfn_cap ?*/, NULL);
 }
 
-void /*? me.interface.name ?*/__init()
+static void __attribute__((constructor)) register_connector(void)
 {
     int error = 0;
     error = camkes_msgqueue_channel_register_receiver(/*? queue_id ?*/,
