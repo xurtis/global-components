@@ -1,5 +1,5 @@
 #
-# Copyright 2019, Data61
+# Copyright 2020, Data61
 # Commonwealth Scientific and Industrial Research Organisation (CSIRO)
 # ABN 41 687 119 230.
 #
@@ -11,7 +11,14 @@
 #
 *.template.c
 *.template.h
+# PicoTCP
 remote-drivers/picotcp-socket-sync/server/khash.h
-components/BenchUtiliz/camkes-include/camkes-BenchUtiliz.h
-remote-drivers/picotcp-ethernet-async/camkes-include/camkes-picotcp-ethernet-async.h
 remote-drivers/picotcp-socket-sync/camkes-include/camkes-picotcp-socket-sync.h
+remote-drivers/picotcp-ethernet-sync/camkes-include/camkes-picotcp-ethernet-async.h
+components/modules/picotcp-base/camkes-include/camkes-picotcp-base.h
+# BenchUtiliz
+components/BenchUtiliz/camkes-include/camkes-BenchUtiliz.h
+# lwIP
+remote-drivers/lwip-socket-sync/camkes-include/camkes-lwip-socket-sync.h
+remote-drivers/lwip-ethernet-async/camkes-include/camkes-lwip-ethernet-async.h
+components/modules/lwip-base/camkes-include/camkes-lwip-base.h
