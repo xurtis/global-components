@@ -79,6 +79,7 @@ LWIP_MEMPOOL_DECLARE(RX_POOL, NUM_BUFS, sizeof(lwip_custom_pbuf_t), "Zero-copy R
 
 static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
 {
+    trace_extra_point_start(0);
     state_t *state = (state_t *)netif->state;
 
     virtqueue_ring_object_t handle;
@@ -89,6 +90,7 @@ static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
             state->num_tx--;
             buf = state->pending_tx[state->num_tx];
         } else {
+            trace_extra_point_end(0, 1);
             // No free packets to use.
             return ERR_MEM;
         }
@@ -114,6 +116,7 @@ static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
 
     LINK_STATS_INC(link.xmit);
 
+    trace_extra_point_end(0, 1);
     return ERR_OK;
 }
 
@@ -142,6 +145,7 @@ static void lwip_free_buf(struct pbuf *buf)
 /* Async driver will set a flag to signal that there is work to be done  */
 static void lwip_eth_poll(state_t *state)
 {
+    trace_extra_point_start(1);
     assert(state);
     while (1) {
         virtqueue_ring_object_t handle;
@@ -178,7 +182,9 @@ static void lwip_eth_poll(state_t *state)
             custom_pbuf->p.custom_free_function = lwip_free_buf;
             custom_pbuf->dma_buf = DECODE_DMA_ADDRESS(buf);
             struct pbuf *p = pbuf_alloced_custom(PBUF_RAW, len, PBUF_REF, &custom_pbuf->p, custom_pbuf->dma_buf, BUF_SIZE);
+            trace_extra_point_start(2);
             err = state->netif.input(p, &state->netif);
+            trace_extra_point_end(2, 1);
             if (err != ERR_OK) {
                 /* Free the pbuf in the common code path instead */
                 break;
@@ -191,6 +197,7 @@ static void lwip_eth_poll(state_t *state)
             pbuf_free(p);
         }
     }
+    trace_extra_point_end(1, 1);
 }
 
 static void notify_server(UNUSED seL4_Word badge, void *cookie)
@@ -238,6 +245,16 @@ int lwip_ethernet_async_client_init_late(void *cookie, register_callback_handler
 {
     state_t *data = cookie;
     register_handler(0, "lwip_notify_ethernet", notify_server, data);
+
+    int error = trace_extra_point_register_name(0, "lwip_eth_send");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 0");
+
+    error = trace_extra_point_register_name(1, "lwip_eth_poll");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 1");
+
+    error = trace_extra_point_register_name(2, "netif.input");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 1");
+
     return 0;
 }
 

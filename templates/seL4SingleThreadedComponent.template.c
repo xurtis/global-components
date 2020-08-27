@@ -107,19 +107,33 @@ int single_threaded_component_register_handler(seL4_Word badge, const char* name
 
 
 /*- if configuration[me.name].get("enable_tracing", 0) == 1 -*/
-#define NUM_TRACES /*? configuration[me.name].get("number_tracepoints", 10) ?*/
+//#define NUM_TRACES /*? configuration[me.name].get("number_tracepoints", 10) ?*/
+#define NUM_TRACES 20
 
 #define START_INDEX 0
 #define SUM_INDEX 1
 #define COUNT_INDEX 2
 
-uint64_t trace_points[NUM_TRACES][3];
+typedef struct trace_point {
+    const char *name;
+    uint64_t start;
+    uint64_t sum;
+    uint64_t num_tripped;
+} trace_point_t;
+
+static trace_point_t trace_points[NUM_TRACES];
+static trace_point_t extra_trace_points[NUM_TRACES];
+
+#define ENDPOINTS_TRACE 0
+#define NOTIFICATIONS_TRACE 1
+#define IRQ_HANDLERS_TRACE 2
+#define REGISTERED_HANDLERS_START 3
 
 #define TRACE_START(num) do { \
         if (num < NUM_TRACES) { \
             ccnt_t val; \
             SEL4BENCH_READ_CCNT(val); \
-            trace_points[num][START_INDEX] = val; \
+            trace_points[num].start = val; \
         } \
 } while (0)
 
@@ -127,47 +141,128 @@ uint64_t trace_points[NUM_TRACES][3];
         if (num < NUM_TRACES) { \
             ccnt_t val; \
             SEL4BENCH_READ_CCNT(val); \
-            trace_points[num][SUM_INDEX] += val - trace_points[num][START_INDEX]; \
-            trace_points[num][COUNT_INDEX] += count; \
+            trace_points[num].sum += val - trace_points[num].start; \
+            trace_points[num].num_tripped += count; \
         } \
 } while (0)
 
 #define TRACE_END(num) TRACE_END_COUNT(num, 1)
 
+#define EXTRA_TRACE_START(num) do { \
+        if (num < NUM_TRACES) { \
+            ccnt_t val; \
+            SEL4BENCH_READ_CCNT(val); \
+            extra_trace_points[num].start = val; \
+        } \
+} while (0)
+
+#define EXTRA_TRACE_END_COUNT(num, count) do { \
+        if (num < NUM_TRACES) { \
+            ccnt_t val; \
+            SEL4BENCH_READ_CCNT(val); \
+            extra_trace_points[num].sum += val - extra_trace_points[num].start; \
+            extra_trace_points[num].num_tripped += count; \
+        } \
+} while (0)
+
+static int num_extra_tp = 0;
 
 void trace_start(void *_arg) {
     for (int i = 0; i < NUM_TRACES; i++) {
-        trace_points[i][SUM_INDEX] = 0;
-        trace_points[i][COUNT_INDEX] = 0;
+        trace_points[i].start = 0;
+        trace_points[i].sum = 0;
+        trace_points[i].num_tripped = 0;
+        extra_trace_points[i].start = 0;
+        extra_trace_points[i].sum = 0;
+        extra_trace_points[i].num_tripped = 0;
     }
     int res = trace_start_reg_callback(trace_start, NULL);
     if (res) {
         ZF_LOGE("Failed to register trace callback");
     }
-
 }
 
 void trace_stop(void *_arg) {
     printf("traces:%s\n", get_instance_name());
-    for (int i = 0; i < MIN(NUM_TRACES, num_handlers+3); i++) {
-        if (i == 0) {
+    for (int i = 0; i < MIN(NUM_TRACES, num_handlers+REGISTERED_HANDLERS_START); i++) {
+        if (i == ENDPOINTS_TRACE) {
             printf("total_endpoint_calls,");
-        } else if (i == 1) {
+        } else if (i == NOTIFICATIONS_TRACE) {
             printf("total_notifications,");
-        } else if (i == 2) {
+        } else if (i == IRQ_HANDLERS_TRACE) {
             printf("irq_handlers,");
-        } else if(i >= 3 && reg_handlers[i-3].name) {
-            printf("%s,", reg_handlers[i-3].name);
-        } else {
-            break;
+        } else if(i >= REGISTERED_HANDLERS_START &&
+                  reg_handlers[i-REGISTERED_HANDLERS_START].name) {
+            printf("%s,", reg_handlers[i-REGISTERED_HANDLERS_START].name);
         }
-        printf("%ld\ncycles,%ld\n", trace_points[i][COUNT_INDEX], trace_points[i][SUM_INDEX]);
+        printf("%ld\ncycles,%ld\n", trace_points[i].num_tripped, trace_points[i].sum);
+    }
+    for (int i = 0; i < num_extra_tp; i++) {
+        if (extra_trace_points[i].name != NULL) {
+            printf("%s,", extra_trace_points[i].name);
+        } else {
+            printf("extra_trace_point_%d,", i);
+        }
+        printf("%ld\ncycles,%ld\n", extra_trace_points[i].num_tripped, extra_trace_points[i].sum);
     }
     int res = trace_stop_reg_callback(trace_stop, NULL);
     if (res) {
         ZF_LOGE("Failed to register trace callback");
     }
 
+}
+
+int trace_extra_point_register_name(int tp_id, const char *name)
+{
+    if (name == NULL) {
+        ZF_LOGE("Invalid name provided to trace_extra_point_register");
+        return -1;
+    }
+
+    if (tp_id < 0 || tp_id >= NUM_TRACES) {
+        ZF_LOGE("Invalid tp ID");
+        return -1;
+    }
+
+    if (num_extra_tp >= NUM_TRACES) {
+        ZF_LOGE("Can't register any more extra trace points");
+        return -1;
+    }
+
+    if (trace_points[tp_id].name != NULL) {
+        ZF_LOGE("Overwriting an existing trace point");
+        return -1;
+    }
+
+    extra_trace_points[tp_id].name = name;
+    num_extra_tp++;
+
+    return 0;
+}
+
+void trace_extra_point_wipe_all(void)
+{
+    for (int i = 0; i < num_extra_tp; i++) {
+        extra_trace_points[i].name = NULL;
+        extra_trace_points[i].start = 0;
+        extra_trace_points[i].sum = 0;
+        extra_trace_points[i].num_tripped = 0;
+    }
+    num_extra_tp = 0;
+}
+
+void trace_extra_point_start(int tp_id)
+{
+    if (likely(tp_id < NUM_TRACES)) {
+        EXTRA_TRACE_START(tp_id);
+    }
+}
+
+void trace_extra_point_end(int tp_id, int count)
+{
+    if (likely(tp_id < NUM_TRACES)) {
+        EXTRA_TRACE_END_COUNT(tp_id, count);
+    }
 }
 
 /*- else -*/
@@ -177,6 +272,10 @@ void trace_stop(void *_arg) {
 void trace_start(void *_arg) {}
 void trace_stop(void *_arg) {}
 
+int trace_extra_point_register_name(int tp_pid, const char *name) { return 0; }
+void trace_extra_point_wipe_all(void) {}
+void trace_extra_point_start(int tp_id) {}
+void trace_extra_point_end(int tp_id, int count) {}
 /*- endif -*/
 
 
@@ -208,11 +307,12 @@ int run(void) {
         seL4_MessageInfo_t info = /*? generate_seL4_Recv(options, endpoint,
                                                                 '&badge',
                                                                  reply_cap_slot) ?*/;
+
     while (1) {
 
         if ((badge & endpoint_base) == endpoint_base) {
             int result = 0;
-            TRACE_START(0);
+            TRACE_START(ENDPOINTS_TRACE);
             switch (badge) {
 #define X(b) \
     case (b):
@@ -238,7 +338,7 @@ int run(void) {
             }
 
             if (result == 1) {
-                TRACE_END(0);
+                TRACE_END(ENDPOINTS_TRACE);
                 /* Send the response */
                 /*-- if not options.realtime -*/
                     camkes_tls_t * tls = camkes_get_tls();
@@ -264,41 +364,39 @@ int run(void) {
                 /*-- endif -*/
                 continue;
             } else if (result == 0) {
-                TRACE_END(0);
+                TRACE_END(ENDPOINTS_TRACE);
                 /* Don't reply to the caller */
                 info = /*? generate_seL4_Recv(options, endpoint,
                                                          '&badge',
                                                          reply_cap_slot) ?*/;
                 continue;
             } else {
-                TRACE_END(0);
+                TRACE_END(ENDPOINTS_TRACE);
             }
 
         }
-        TRACE_START(1);
         if ((badge & notification_base) == notification_base) {
-            TRACE_START(2);
+            TRACE_START(NOTIFICATIONS_TRACE);
+            TRACE_START(IRQ_HANDLERS_TRACE);
             int UNUSED num_handlers_called = camkes_handle_global_endpoint_irq(badge);
-            TRACE_END_COUNT(2, num_handlers_called);
+            TRACE_END_COUNT(IRQ_HANDLERS_TRACE, num_handlers_called);
             for (int i = 0; i < num_handlers; i++) {
                 seL4_Word b = reg_handlers[i].badge;
                 if ((badge & b) == b) {
-                    TRACE_START(i + 3);
+                    TRACE_START(i + REGISTERED_HANDLERS_START);
                     reg_handlers[i].callback_handler(b, reg_handlers[i].cookie);
-                    TRACE_END(i + 3);
+                    TRACE_END(i + REGISTERED_HANDLERS_START);
                 }
             }
+            TRACE_END(NOTIFICATIONS_TRACE);
         }
-        TRACE_END(1);
         if (signal_to_send) {
             /*? generate_seL4_SignalRecv(options, 'info', 'signal_to_send', 'info', endpoint, '&badge', reply_cap_slot) ?*/;
             signal_to_send = 0;
         } else {
-
             info = /*? generate_seL4_Recv(options, endpoint,
                                         '&badge',
                                         reply_cap_slot) ?*/;
-
         }
 
     }

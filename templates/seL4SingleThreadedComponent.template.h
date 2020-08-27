@@ -27,6 +27,13 @@ typedef int (*camkes_module_init_fn_t)(ps_io_ops_t *io_ops);
     static_assert(init_func != NULL, "Supplied init_func is NULL!");            \
     USED SECTION("_post_init") camkes_module_init_fn_t name = init_func;
 
+int trace_extra_point_register_name(int tp_id, const char *name);
+
+void trace_extra_point__wipe_all(void);
+
+void trace_extra_point_start(int tp_id);
+
+void trace_extra_point_end(int tp_id, int count);
 
 /* Function for registering notification event handlers under a certain badge value */
 int single_threaded_component_register_handler(seL4_Word badge, const char* name, void (*callback_handler)(seL4_Word, void *), void * cookie);

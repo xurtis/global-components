@@ -834,9 +834,15 @@ static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
 int picotcp_socket_sync_server_init_late(register_callback_handler_fn_t callback_handler)
 {
     callback_handler(0, "notify_client", notify_client, NULL);
+
+    int error = trace_extra_point_register_name(0, "tx_chksum");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 0);
+
+    error = trace_extra_point_register_name(1, "rx_chksum");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+
     return 0;
 }
-
 
 int picotcp_socket_sync_server_init(ps_io_ops_t *io_ops, int num_clients_,
                                     register_callback_handler_fn_t callback_handler)

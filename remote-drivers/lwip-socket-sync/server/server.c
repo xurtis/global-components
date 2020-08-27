@@ -202,9 +202,11 @@ static void tx_complete(void *cookie, int len)
 
 static void tx_socket(lwipserver_socket_t *socket)
 {
+    trace_extra_point_start(2 + 2);
     assert(socket != NULL);
 
     if (socket->async_socket == NULL) {
+        trace_extra_point_end(2 + 2, 1);
         ZF_LOGE("Socket isn't setup for async");
         return;
     }
@@ -222,7 +224,9 @@ static void tx_socket(lwipserver_socket_t *socket)
                 error = pbuf_take(p, msg->buf+msg->done_len,
                                   msg->total_len-msg->done_len);
                 if (error == ERR_OK) {
+                    trace_extra_point_start(2 + 5);
                     error = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
+                    trace_extra_point_end(2 + 5, 1);
                 }
             } else {
                 error = ERR_MEM;
@@ -256,10 +260,12 @@ static void tx_socket(lwipserver_socket_t *socket)
         }
         tx_complete(msg->cookie_save, msg->total_len);
     }
+    trace_extra_point_end(2 + 2, 1);
 }
 
 static void tx_queue_handle(void)
 {
+    trace_extra_point_start(2 + 1);
     int error;
     err_t ret;
 
@@ -275,6 +281,7 @@ static void tx_queue_handle(void)
         int more = virtqueue_gather_available(&tx_virtqueue, &handle, &buf, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
+            break;
         }
 
         tx_msg_t *msg = DECODE_DMA_ADDRESS(buf);
@@ -318,7 +325,9 @@ static void tx_queue_handle(void)
                 ret = pbuf_take(p, msg->buf+msg->done_len,
                                 msg->total_len-msg->done_len);
                 if (ret == ERR_OK) {
+                    trace_extra_point_start(2 + 5);
                     ret = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
+                    trace_extra_point_end(2 + 5, 1);
                 }
             } else {
                 error = ERR_MEM;
@@ -343,6 +352,7 @@ static void tx_queue_handle(void)
         msg->done_len = msg->total_len;
         tx_complete((void*)(uintptr_t)handle.first, msg->total_len);
     }
+    trace_extra_point_end(2 + 1, 1);
 }
 
 static void rx_complete(void *cookie, int len)
@@ -359,6 +369,7 @@ static void rx_complete(void *cookie, int len)
 
 static void rx_socket(lwipserver_socket_t *socket)
 {
+    trace_extra_point_start(2 + 4);
     assert(socket != NULL);
 
     if (socket->async_socket == NULL) {
@@ -373,9 +384,11 @@ static void rx_socket(lwipserver_socket_t *socket)
         tx_msg_t *msg = socket->async_socket->rx_pending_queue;
 
         if (socket->proto == UDP) {
+            trace_extra_point_start(2 + 6);
             bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
                                                  msg->total_len, &msg->src_addr,
                                                  &msg->src_port);
+            trace_extra_point_end(2 + 6, 1);
         } else {
             bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
                                                  msg->total_len - msg->done_len);
@@ -384,6 +397,7 @@ static void rx_socket(lwipserver_socket_t *socket)
         if ((socket->proto == TCP && bytes_read < (msg->total_len-msg->done_len)) ||
             (socket->proto == UDP && bytes_read == 0)) {
             msg->done_len += bytes_read;
+            trace_extra_point_end(2 + 4, 1);
             return;
         } else {
             msg->done_len += bytes_read;
@@ -394,12 +408,14 @@ static void rx_socket(lwipserver_socket_t *socket)
             rx_complete(msg->cookie_save, msg->total_len);
         }
     }
+    trace_extra_point_end(2 + 4, 1);
 }
 
 static void rx_queue_handle(void)
 {
     int error;
 
+    trace_extra_point_start(2 + 3);
     while(1) {
         virtqueue_ring_object_t handle;
 
@@ -413,7 +429,7 @@ static void rx_queue_handle(void)
         int more = virtqueue_gather_available(&rx_virtqueue, &handle, &buf, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
-
+            break;
         }
 
         tx_msg_t *msg = DECODE_DMA_ADDRESS(buf);
@@ -448,9 +464,11 @@ static void rx_queue_handle(void)
 
         int bytes_read;
         if (socket->proto == UDP) {
+            trace_extra_point_start(2 + 6);
             bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
                                                  msg->total_len - msg->done_len,
                                                  &msg->src_addr, &msg->src_port);
+            trace_extra_point_start(2 + 6, 1);
         } else {
             bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
                                                  msg->total_len - msg->done_len);
@@ -463,12 +481,14 @@ static void rx_queue_handle(void)
             msg->next = NULL;
             socket->async_socket->rx_pending_queue = msg;
             socket->async_socket->rx_pending_queue_end = msg;
+            trace_extra_point_end(2 + 3, 1);
             return;
         } else {
             msg->done_len = bytes_read;
             rx_complete((void*)(uintptr_t)handle.first, msg->done_len);
         }
     }
+    trace_extra_point_end(2 + 3, 1);
 }
 
 static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
@@ -521,11 +541,14 @@ static int add_pbuf_to_chain(lwipserver_socket_t *socket, struct pbuf *p,
 static void lwipserver_udp_receive_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                                             const ip_addr_t *addr, u16_t port)
 {
+    trace_extra_point_start(2 + 7);
     assert(arg);
 
     lwipserver_socket_t *socket = arg;
 
+    trace_extra_point_start(2 + 8);
     add_pbuf_to_chain(socket, p, addr, port);
+    trace_extra_point_end(2 + 8, 1);
 
     if (socket->async_socket != NULL) {
         rx_queue_handle();
@@ -534,6 +557,7 @@ static void lwipserver_udp_receive_callback(void *arg, struct udp_pcb *pcb, stru
         socket->outstanding_events |= LWIPSERVER_DATA_AVAIL;
         emit_client = 1;
     }
+    trace_extra_point_end(2 + 7, 1);
 }
 
 static err_t lwipserver_tcp_receive_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
@@ -1127,6 +1151,40 @@ static void notify_client(UNUSED seL4_Word badge, void *cookie)
 int lwip_socket_sync_server_init_late(ps_io_ops_t *io_ops, register_callback_handler_fn_t callback_handler)
 {
     callback_handler(0, "lwip_notify_client", notify_client, NULL);
+
+    int error = trace_extra_point_register_name(2 + 1, "tx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 1);
+
+    error = trace_extra_point_register_name(2 + 2, "tx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 2);
+
+    error = trace_extra_point_register_name(2 + 3, "rx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 3);
+
+    error = trace_extra_point_register_name(2 + 4, "rx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 4);
+
+    error = trace_extra_point_register_name(2 + 5, "udp_sendto");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 5);
+
+    error = trace_extra_point_register_name(2 + 6, "copy_udp_packet");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 6);
+
+    error = trace_extra_point_register_name(2 + 7, "udp_receive_callback");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 7);
+
+    error = trace_extra_point_register_name(2 + 8, "add_pbuf_to_chain");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 8);
+
+    error = trace_extra_point_register_name(2 + 9, "inet_cksum_pseudo");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 9);
+
+    error = trace_extra_point_register_name(2 + 10, "udp_sendto_prologue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 10);
+
+    error = trace_extra_point_register_name(2 + 11, "udp_input_checksum");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 11);
+
     return 0;
 }
 

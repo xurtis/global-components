@@ -196,7 +196,6 @@ int picotcp_ethernet_async_client_init_late(void *cookie, register_callback_hand
     state_t *data = cookie;
     register_handler(0, "notify_ethernet", notify_server, data);
     return 0;
-
 }
 
 int picotcp_ethernet_async_client_init(ps_io_ops_t *io_ops, const char *tx_virtqueue, const char *rx_virtqueue,
