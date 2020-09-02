@@ -76,15 +76,15 @@
     /*? raise(TemplateError('Interface %s is not present in connection.' % (other_interface_name))) ?*/
 /*- endif -*/
 /*- set other_interface = other_interface[0] -*/
-/*- set queue_length = configuration[me.parent.name].get("queue_length", 256) -*/
+/*- set queue_length = configuration[me.parent.name].get("queue_length", 512) -*/
 /*- if queue_length is none or not isinstance(queue_length, six.integer_types) -*/
     /*? raise(Exception('%s.queue_length must be set to a number' % (me.parent.name))) ?*/
 /*- endif -*/
 
 
 /*# Create shared memory region between the two interfaces #*/
-/*- set shmem_size = configuration[me.instance.name].get("%s_shmem_size" % me.interface.name, 8192) -*/
-/*- if shmem_size != configuration[other_interface.instance.name].get("%s_shmem_size" % other_interface.interface.name, 8192) -*/
+/*- set shmem_size = configuration[me.instance.name].get("%s_shmem_size" % me.interface.name, 65536) -*/
+/*- if shmem_size != configuration[other_interface.instance.name].get("%s_shmem_size" % other_interface.interface.name, 65536) -*/
     /*? raise(TemplateError('Setting %s.%s_shmem_size does not match size configuration from other side: %d vs. %d' % (me.instance.name, me.interface.name, shmem_size, configuration[other_interface.instance.name].get("%s_shmem_size" % other_interface.interface.name, 4096)))) ?*/
 /*- endif -*/
 /*- if end_string == 'drv' -*/

@@ -35,8 +35,8 @@ import <lwip-socket-sync.camkes>;
     consumes Init name##_init2; \
     uses VirtQueueDev name##_tx; \
     uses VirtQueueDev name##_rx; \
-    attribute int name##_tx_shmem_size = 8192 * 4;  \
-    attribute int name##_rx_shmem_size = 8192 * 4;  \
+    attribute int name##_tx_shmem_size = 8192 * 16;  \
+    attribute int name##_rx_shmem_size = 8192 * 16;  \
     dataport Buf name##_dma_pool;
 
 #define lwip_socket_sync_server_connections(name) \
@@ -64,8 +64,8 @@ import <lwip-socket-sync.camkes>;
     client_name##_dma.size = async_pool_size; \
     client_name##_virtq_conn0.queue_length = q_length; \
     client_name##_virtq_conn1.queue_length = q_length; \
-    client.client_name##_tx_shmem_size = 8192 * 4;     \
-    client.client_name##_rx_shmem_size = 8192 * 4;     \
+    client.client_name##_tx_shmem_size = 8192 * 16;     \
+    client.client_name##_rx_shmem_size = 8192 * 16;     \
     client_name##_dma.controller = VAR_STRINGIZE(client.client_name##_dma_pool);
 
 #define lwip_socket_msgqueue_configurations(client, client_name, server, server_name) \

@@ -30,6 +30,7 @@ uint64_t (*timer_get_time_fn)(void);
 
 u32_t sys_now(void)
 {
+    trace_extra_point_start(4);
     if (!timers_initialised) {
         /* lwip_init() will call this when initialising its own timers,
          * but the timer RPC is not set up at this point so just return 0 */
@@ -38,6 +39,7 @@ u32_t sys_now(void)
         uint64_t time_now = timer_get_time_fn();
         return time_now / NS_IN_MS;
     }
+    trace_extra_point_end(4, 1);
 }
 
 static void stack_tick_callback(UNUSED seL4_Word badge, void *cookie)
@@ -98,6 +100,9 @@ int init_lwip_post(ps_io_ops_t *io_ops, seL4_Word timer_badge, int (*timer_perio
         netif_set_up(netif);
         ZF_LOGF_IF(dhcp_start(netif), "Failed to initiate the DHCP negotiation");
     }
+
+    int error = trace_extra_point_register_name(4, "sys_now");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 4");
 
     callback_handler(timer_badge, "lwip_stack_tick_callback", stack_tick_callback, NULL);
     /* Start the timer for the TCP stack */

@@ -128,7 +128,9 @@ static void pop_pbuf_from_chain(lwipserver_socket_t *socket)
     if (head->next == NULL) {
         socket->pbuf_tail = NULL;
     }
+    //trace_extra_point_start(4 + 13);
     pbuf_free(head->p);
+    //trace_extra_point_end(4 + 13, 1);
     ZF_LOGF_IF(ps_free(malloc_ops, sizeof(*head), head),
                "Failed to free a pbuf_chain_t node");
 }
@@ -170,7 +172,10 @@ static int copy_udp_socket_packets(int socket_fd, void *user_buffer, int len,
 
     /* Try to copy the entire packet contents, otherwise get as much as we can and drop the
      * packet */
+
+    //trace_extra_point_start(4 + 11);
     u16_t bytes_copied = pbuf_copy_partial(curr_pbuf->p, user_buffer, len, 0);
+    //trace_extra_point_end(4 + 11, 1);
 
     if (ret_addr) {
         *ret_addr = curr_pbuf->ip_addr;
@@ -188,6 +193,7 @@ static int copy_udp_socket_packets(int socket_fd, void *user_buffer, int len,
 
 static void tx_complete(void *cookie, int len)
 {
+    //trace_extra_point_start(4 + 15);
     virtqueue_ring_object_t handle;
     handle.first = (uint32_t)(uintptr_t)cookie;
     handle.cur = (uint32_t)(uintptr_t)cookie;
@@ -198,15 +204,16 @@ static void tx_complete(void *cookie, int len)
     }
 
     emit_client_async = 1;
+    //trace_extra_point_end(4 + 15, 1);
 }
 
 static void tx_socket(lwipserver_socket_t *socket)
 {
-    trace_extra_point_start(2 + 2);
+    //trace_extra_point_start(4 + 2);
     assert(socket != NULL);
 
     if (socket->async_socket == NULL) {
-        trace_extra_point_end(2 + 2, 1);
+        //trace_extra_point_end(4 + 2, 1);
         ZF_LOGE("Socket isn't setup for async");
         return;
     }
@@ -219,25 +226,25 @@ static void tx_socket(lwipserver_socket_t *socket)
         struct pbuf *p = NULL;
 
         if (socket->proto == UDP) {
-            p = pbuf_alloc(PBUF_TRANSPORT, msg->total_len-msg->done_len, PBUF_POOL);
+            //trace_extra_point_start(4 + 24);
+            p = pbuf_alloc_reference(msg->buf_ref, msg->total_len, PBUF_REF);
+            //trace_extra_point_end(4 + 24, 1);
             if (p != NULL) {
-                error = pbuf_take(p, msg->buf+msg->done_len,
-                                  msg->total_len-msg->done_len);
-                if (error == ERR_OK) {
-                    trace_extra_point_start(2 + 5);
-                    error = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
-                    trace_extra_point_end(2 + 5, 1);
-                }
+                //trace_extra_point_start(4 + 5);
+                error = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
+                //trace_extra_point_end(4 + 5, 1);
             } else {
                 error = ERR_MEM;
             }
         } else {
-            error = tcp_write(socket->tcp_pcb, msg->buf + msg->done_len,
-                              msg->total_len - msg->done_len, TCP_WRITE_FLAG_COPY);
+            //error = tcp_write(socket->tcp_pcb, msg->buf + msg->done_len,
+                              //msg->total_len - msg->done_len, TCP_WRITE_FLAG_COPY);
         }
 
         if (p != NULL) {
+            //trace_extra_point_start(4 + 19);
             pbuf_free(p);
+            //trace_extra_point_end(4 + 19, 1);
         }
 
         if (error != ERR_OK) {
@@ -260,12 +267,12 @@ static void tx_socket(lwipserver_socket_t *socket)
         }
         tx_complete(msg->cookie_save, msg->total_len);
     }
-    trace_extra_point_end(2 + 2, 1);
+    //trace_extra_point_end(4 + 2, 1);
 }
 
 static void tx_queue_handle(void)
 {
-    trace_extra_point_start(2 + 1);
+    //trace_extra_point_start(4 + 1);
     int error;
     err_t ret;
 
@@ -275,16 +282,16 @@ static void tx_queue_handle(void)
             break;
         }
 
-        void *buf;
+        uintptr_t offset;
         unsigned len;
         vq_flags_t flag;
-        int more = virtqueue_gather_available(&tx_virtqueue, &handle, &buf, &len, &flag);
+        int more = virtqueue_gather_available(&tx_virtqueue, &handle, (void **) &offset, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
             break;
         }
 
-        tx_msg_t *msg = DECODE_DMA_ADDRESS(buf);
+        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&tx_virtqueue, offset);
         ZF_LOGF_IF(msg == NULL, "msg is null");
         ZF_LOGF_IF((msg->total_len > 1400) || (msg->total_len == 0),
                    "bad msg len in tx %zd", msg->total_len);
@@ -320,25 +327,26 @@ static void tx_queue_handle(void)
         struct pbuf *p = NULL;
 
         if (socket->proto == UDP) {
-            p = pbuf_alloc(PBUF_TRANSPORT, msg->total_len-msg->done_len, PBUF_POOL);
+            //trace_extra_point_start(4 + 24);
+            p = pbuf_alloc_reference(msg->buf_ref, msg->total_len,
+                                     PBUF_REF);
+            //trace_extra_point_end(4 + 24, 1);
             if (p != NULL) {
-                ret = pbuf_take(p, msg->buf+msg->done_len,
-                                msg->total_len-msg->done_len);
-                if (ret == ERR_OK) {
-                    trace_extra_point_start(2 + 5);
-                    ret = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
-                    trace_extra_point_end(2 + 5, 1);
-                }
+                //trace_extra_point_start(4 + 5);
+                ret = udp_sendto(socket->udp_pcb, p, &msg->src_addr, msg->src_port);
+                //trace_extra_point_end(4 + 5, 1);
             } else {
                 error = ERR_MEM;
             }
         } else {
-            ret = tcp_write(socket->tcp_pcb, msg->buf + msg->done_len,
-                            msg->total_len - msg->done_len, TCP_WRITE_FLAG_COPY);
+            //ret = tcp_write(socket->tcp_pcb, msg->buf + msg->done_len,
+                            //msg->total_len - msg->done_len, TCP_WRITE_FLAG_COPY);
         }
 
         if (p != NULL) {
+            //trace_extra_point_start(4 + 18);
             pbuf_free(p);
+            //trace_extra_point_end(4 + 18, 1);
         }
 
         if (ret != ERR_OK) {
@@ -352,11 +360,12 @@ static void tx_queue_handle(void)
         msg->done_len = msg->total_len;
         tx_complete((void*)(uintptr_t)handle.first, msg->total_len);
     }
-    trace_extra_point_end(2 + 1, 1);
+    //trace_extra_point_end(4 + 1, 1);
 }
 
 static void rx_complete(void *cookie, int len)
 {
+    //trace_extra_point_start(4 + 14);
     virtqueue_ring_object_t handle;
     handle.first = (uint32_t)(uintptr_t)cookie;
     handle.cur = (uint32_t)(uintptr_t)cookie;
@@ -365,11 +374,31 @@ static void rx_complete(void *cookie, int len)
 
     }
     emit_client_async = 1;
+    //trace_extra_point_end(4 + 14, 1);
+}
+
+static int move_packet_to_msg(tx_msg_t *msg)
+{
+    pbuf_chain_t *curr_pbuf = socket_array[msg->socket_fd].pbufs;
+
+    if (curr_pbuf == NULL) {
+        return 0;
+    }
+
+    int total_bytes = curr_pbuf->p->tot_len;
+
+    msg->src_addr = curr_pbuf->ip_addr;
+    msg->src_port = curr_pbuf->port;
+    msg->buf_ref = curr_pbuf->p->payload;
+
+    pop_pbuf_from_chain(&socket_array[msg->socket_fd]);
+
+    return total_bytes;
 }
 
 static void rx_socket(lwipserver_socket_t *socket)
 {
-    trace_extra_point_start(2 + 4);
+    //trace_extra_point_start(4 + 4);
     assert(socket != NULL);
 
     if (socket->async_socket == NULL) {
@@ -384,20 +413,21 @@ static void rx_socket(lwipserver_socket_t *socket)
         tx_msg_t *msg = socket->async_socket->rx_pending_queue;
 
         if (socket->proto == UDP) {
-            trace_extra_point_start(2 + 6);
-            bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
-                                                 msg->total_len, &msg->src_addr,
-                                                 &msg->src_port);
-            trace_extra_point_end(2 + 6, 1);
+            //trace_extra_point_start(4 + 16);
+            bytes_read = move_packet_to_msg(msg);
+            //bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
+                                                 //msg->total_len, &msg->src_addr,
+                                                 //&msg->src_port);
+            //trace_extra_point_end(4 + 16, 1);
         } else {
-            bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
-                                                 msg->total_len - msg->done_len);
+            //bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
+                                                 //msg->total_len - msg->done_len);
         }
 
         if ((socket->proto == TCP && bytes_read < (msg->total_len-msg->done_len)) ||
             (socket->proto == UDP && bytes_read == 0)) {
             msg->done_len += bytes_read;
-            trace_extra_point_end(2 + 4, 1);
+            //trace_extra_point_end(4 + 4, 1);
             return;
         } else {
             msg->done_len += bytes_read;
@@ -408,14 +438,14 @@ static void rx_socket(lwipserver_socket_t *socket)
             rx_complete(msg->cookie_save, msg->total_len);
         }
     }
-    trace_extra_point_end(2 + 4, 1);
+    //trace_extra_point_end(4 + 4, 1);
 }
 
 static void rx_queue_handle(void)
 {
     int error;
 
-    trace_extra_point_start(2 + 3);
+    //trace_extra_point_start(4 + 3);
     while(1) {
         virtqueue_ring_object_t handle;
 
@@ -423,16 +453,16 @@ static void rx_queue_handle(void)
             break;
         }
 
-        void *buf;
+        uintptr_t offset;
         unsigned len;
         vq_flags_t flag;
-        int more = virtqueue_gather_available(&rx_virtqueue, &handle, &buf, &len, &flag);
+        int more = virtqueue_gather_available(&rx_virtqueue, &handle, (void **) &offset, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
             break;
         }
 
-        tx_msg_t *msg = DECODE_DMA_ADDRESS(buf);
+        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&rx_virtqueue, offset);
         ZF_LOGF_IF(msg == NULL, "msg is null");
         ZF_LOGF_IF((msg->total_len > 1400) || (msg->total_len == 0), "bad msg len in rx %zd", msg->total_len);
 
@@ -464,14 +494,15 @@ static void rx_queue_handle(void)
 
         int bytes_read;
         if (socket->proto == UDP) {
-            trace_extra_point_start(2 + 6);
-            bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
-                                                 msg->total_len - msg->done_len,
-                                                 &msg->src_addr, &msg->src_port);
-            trace_extra_point_start(2 + 6, 1);
+            //trace_extra_point_start(4 + 6);
+            bytes_read = move_packet_to_msg(msg);
+            //bytes_read = copy_udp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
+                                                 //msg->total_len - msg->done_len,
+                                                 //&msg->src_addr, &msg->src_port);
+            //trace_extra_point_end(4 + 6, 1);
         } else {
-            bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
-                                                 msg->total_len - msg->done_len);
+            //bytes_read = copy_tcp_socket_packets(msg->socket_fd, msg->buf + msg->done_len,
+                                                 //msg->total_len - msg->done_len);
         }
 
         if ((socket->proto == TCP && bytes_read < msg->total_len) ||
@@ -481,14 +512,14 @@ static void rx_queue_handle(void)
             msg->next = NULL;
             socket->async_socket->rx_pending_queue = msg;
             socket->async_socket->rx_pending_queue_end = msg;
-            trace_extra_point_end(2 + 3, 1);
+            //trace_extra_point_end(4 + 3, 1);
             return;
         } else {
             msg->done_len = bytes_read;
             rx_complete((void*)(uintptr_t)handle.first, msg->done_len);
         }
     }
-    trace_extra_point_end(2 + 3, 1);
+    //trace_extra_point_end(4 + 3, 1);
 }
 
 static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
@@ -499,17 +530,29 @@ static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
 
 static err_t lwipserver_sent_callback(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
+    //trace_extra_point_start(4 + 20);
     assert(arg);
 
     lwipserver_socket_t *socket = arg;
 
     if (socket->async_socket != NULL) {
+        //trace_extra_point_start(4 + 21);
         tx_queue_handle();
+        //trace_extra_point_end(4 + 21, 1);
+        //trace_extra_point_start(4 + 22);
         tx_socket(socket);
+        //trace_extra_point_end(4 + 22, 1);
     }
 
+    //trace_extra_point_end(4 + 20, 1);
     return ERR_OK;
 }
+
+typedef struct lwip_custom_pbuf {
+    struct pbuf_custom p;
+    bool is_echo;
+    void *dma_buf;
+} lwip_custom_pbuf_t;
 
 static int add_pbuf_to_chain(lwipserver_socket_t *socket, struct pbuf *p,
                              const ip_addr_t *ip_addr, u16_t port)
@@ -519,6 +562,11 @@ static int add_pbuf_to_chain(lwipserver_socket_t *socket, struct pbuf *p,
     if (error) {
         ZF_LOGE("Failed to allocate memory for the pbuf new_node head");
         return error;
+    }
+
+    if (p->flags & PBUF_FLAG_IS_CUSTOM) {
+        lwip_custom_pbuf_t *custom_pbuf = (lwip_custom_pbuf_t *) p;
+        custom_pbuf->is_echo = true;
     }
 
     new_node->p = p;
@@ -541,23 +589,27 @@ static int add_pbuf_to_chain(lwipserver_socket_t *socket, struct pbuf *p,
 static void lwipserver_udp_receive_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                                             const ip_addr_t *addr, u16_t port)
 {
-    trace_extra_point_start(2 + 7);
+    //trace_extra_point_start(4 + 7);
     assert(arg);
 
     lwipserver_socket_t *socket = arg;
 
-    trace_extra_point_start(2 + 8);
+    //trace_extra_point_start(4 + 8);
     add_pbuf_to_chain(socket, p, addr, port);
-    trace_extra_point_end(2 + 8, 1);
+    //trace_extra_point_end(4 + 8, 1);
 
     if (socket->async_socket != NULL) {
+        //trace_extra_point_start(4 + 9);
         rx_queue_handle();
+        //trace_extra_point_end(4 + 9, 1);
+        //trace_extra_point_start(4 + 10);
         rx_socket(socket);
+        //trace_extra_point_end(4 + 10, 1);
     } else {
         socket->outstanding_events |= LWIPSERVER_DATA_AVAIL;
         emit_client = 1;
     }
-    trace_extra_point_end(2 + 7, 1);
+    //trace_extra_point_end(4 + 7, 1);
 }
 
 static err_t lwipserver_tcp_receive_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
@@ -1152,38 +1204,79 @@ int lwip_socket_sync_server_init_late(ps_io_ops_t *io_ops, register_callback_han
 {
     callback_handler(0, "lwip_notify_client", notify_client, NULL);
 
-    int error = trace_extra_point_register_name(2 + 1, "tx_queue_handle");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 1);
+    /*
+    int error = trace_extra_point_register_name(4 + 1, "tx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 1);
 
-    error = trace_extra_point_register_name(2 + 2, "tx_socket");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 2);
+    error = trace_extra_point_register_name(4 + 2, "tx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 2);
 
-    error = trace_extra_point_register_name(2 + 3, "rx_queue_handle");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 3);
+    error = trace_extra_point_register_name(4 + 3, "rx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 3);
 
-    error = trace_extra_point_register_name(2 + 4, "rx_socket");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 4);
+    error = trace_extra_point_register_name(4 + 4, "rx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 4);
 
-    error = trace_extra_point_register_name(2 + 5, "udp_sendto");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 5);
+    error = trace_extra_point_register_name(4 + 5, "udp_sendto");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 5);
 
-    error = trace_extra_point_register_name(2 + 6, "copy_udp_packet");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 6);
+    error = trace_extra_point_register_name(4 + 6, "move_packet_in_queue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 6);
 
-    error = trace_extra_point_register_name(2 + 7, "udp_receive_callback");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 7);
+    error = trace_extra_point_register_name(4 + 7, "udp_receive_callback");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 7);
 
-    error = trace_extra_point_register_name(2 + 8, "add_pbuf_to_chain");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 8);
+    error = trace_extra_point_register_name(4 + 8, "add_pbuf_to_chain");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 8);
 
-    error = trace_extra_point_register_name(2 + 9, "inet_cksum_pseudo");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 9);
+    error = trace_extra_point_register_name(4 + 9, "rx_queue_handle_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 9);
 
-    error = trace_extra_point_register_name(2 + 10, "udp_sendto_prologue");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 10);
+    error = trace_extra_point_register_name(4 + 10, "rx_socket_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 10);
 
-    error = trace_extra_point_register_name(2 + 11, "udp_input_checksum");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2 + 11);
+    error = trace_extra_point_register_name(4 + 11, "pbuf_copy_partial");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 11);
+
+    error = trace_extra_point_register_name(4 + 12, "pbuf_take_in_queue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 12);
+
+    error = trace_extra_point_register_name(4 + 13, "pbuf_free_in_pop");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 13);
+
+    error = trace_extra_point_register_name(4 + 14, "rx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 14);
+
+    error = trace_extra_point_register_name(4 + 15, "tx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 15);
+
+    error = trace_extra_point_register_name(4 + 16, "move_packet_in_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 16);
+
+    error = trace_extra_point_register_name(4 + 17, "pbuf_take_in_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 17);
+
+    error = trace_extra_point_register_name(4 + 18, "pbuf_free_in_tx_queue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 18);
+
+    error = trace_extra_point_register_name(4 + 19, "pbuf_free_in_tx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 19);
+
+    error = trace_extra_point_register_name(4 + 20, "lwip_sent_callback");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 20);
+
+    error = trace_extra_point_register_name(4 + 21, "tx_queue_handle_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 21);
+
+    error = trace_extra_point_register_name(4 + 22, "tx_socket_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 22);
+
+    error = trace_extra_point_register_name(4 + 23, "pbuf_alloc_in_queue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 23);
+
+    error = trace_extra_point_register_name(4 + 24, "pbuf_alloc_in_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 24);
+    */
 
     return 0;
 }

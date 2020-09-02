@@ -12,6 +12,7 @@
 
 #include <autoconf.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include <camkes/dma.h>
 #include <camkes/dataport.h>
@@ -28,6 +29,16 @@
 #include <virtqueue.h>
 #include <lwip-ethernet-async.h>
 
+int no_more_bufs = 0;
+
+static uintptr_t phys_ring[32];
+static unsigned int len_ring[32];
+
+typedef struct tx_cookie {
+    size_t num_handles;
+    uint32_t first_idx;
+} tx_cookie_t;
+
 typedef struct data {
     ps_io_ops_t *io_ops;
     virtqueue_device_t tx_virtqueue;
@@ -43,21 +54,28 @@ typedef struct data {
 
 static void eth_tx_complete(void *iface, void *cookie)
 {
+    //trace_extra_point_start(1);
     server_data_t *state = iface;
 
+    uint32_t first = (uint32_t) ((uintptr_t) cookie);
+
     virtqueue_ring_object_t handle;
-    handle.first = (uint32_t)(uintptr_t)cookie;
-    handle.cur = (uint32_t)(uintptr_t)cookie;
+    handle.first = first;
+    handle.cur = first;
+
     if (!virtqueue_add_used_buf(&state->tx_virtqueue, &handle, BUF_SIZE)) {
         ZF_LOGF("eth_tx_complete: Error while enqueuing used buffer, queue full");
     }
-    state->action = true;
 
+    state->action = true;
+    //trace_extra_point_end(1, 1);
 }
 
 static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie)
 {
+    //trace_extra_point_start(3);
     if (buf_size > BUF_SIZE) {
+        //trace_extra_point_end(3, 1);
         return 0;
     }
     server_data_t *state = iface;
@@ -65,8 +83,10 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
     virtqueue_ring_object_t handle;
 
     if (virtqueue_get_available_buf(&state->rx_virtqueue, &handle) == 0) {
+        no_more_bufs = (no_more_bufs + 1) % 10;
         // No buffer available to fill RX ring with.
         state->no_rx_bufs = true;
+        //trace_extra_point_end(3, 1);
         return 0;
     }
     state->no_rx_bufs = false;
@@ -78,13 +98,16 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
         ZF_LOGF("eth_allocate_rx_buf: Invalid virtqueue ring entry");
     }
 
+    ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
     uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
     *cookie = (void *)(uintptr_t) handle.first;
+    //trace_extra_point_end(3, 1);
     return phys;
 }
 
 static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, unsigned int *lens)
 {
+    //trace_extra_point_start(2);
     server_data_t *state = iface;
     /* insert filtering here. currently everything just goes to one client */
     if (num_bufs != 1) {
@@ -97,6 +120,7 @@ static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, 
                 ZF_LOGF("eth_rx_complete: Error while enqueuing used buffer, queue full");
             }
         }
+        //trace_extra_point_end(2, 1);
         return;
 
     }
@@ -107,6 +131,7 @@ static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, 
         ZF_LOGF("eth_rx_complete: Error while enqueuing used buffer, queue full");
     }
     state->action = true;
+    //trace_extra_point_end(2, 1);
     return;
 }
 
@@ -136,7 +161,6 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
         state->eth_driver->i_fn.raw_poll(state->eth_driver);
     }
     while (1) {
-
         virtqueue_ring_object_t handle;
 
         unsigned next = (state->tx_virtqueue.a_ring_last_seen + 1) & (state->tx_virtqueue.queue_len - 1);
@@ -147,17 +171,24 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
         handle.first = state->tx_virtqueue.avail_ring->ring[next];
         handle.cur = handle.first;
 
+        void *cookie = (void *) (uintptr_t) handle.first;
+
         void *buf;
         unsigned len;
         vq_flags_t flag;
-        int more = virtqueue_gather_available(&state->tx_virtqueue, &handle, &buf, &len, &flag);
-        if (more == 0) {
-            ZF_LOGF("tx_queue_handle_irq: Invalid virtqueue ring entry");
+        int num_bufs = 0;
+
+        while (virtqueue_gather_available(&state->tx_virtqueue, &handle, &buf, &len, &flag)) {
+            ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
+            phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
+            len_ring[num_bufs] = len;
+            num_bufs++;
+            ZF_LOGF_IF(num_bufs == 32, "too many bufs to cache");
         }
 
-        uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
-        int err = state->eth_driver->i_fn.raw_tx(state->eth_driver, 1, (uintptr_t *) &phys, (unsigned int *)&len,
-                                                 (void *)(uintptr_t)handle.first);
+        //trace_extra_point_start(0);
+        int err = state->eth_driver->i_fn.raw_tx(state->eth_driver, num_bufs, phys_ring, len_ring, cookie);
+        //trace_extra_point_end(0, 1);
 
         if (err != ETHIF_TX_ENQUEUED) {
             state->blocked_tx = true;
@@ -167,7 +198,6 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
             virtqueue_get_available_buf(&state->tx_virtqueue, &handle);
         }
     }
-
 }
 
 
@@ -239,6 +269,20 @@ int lwip_ethernet_async_server_init(ps_io_ops_t *io_ops, const char *tx_virtqueu
     if (error) {
         ZF_LOGE("Unable to register handler");
     }
+
+    /*
+    error = trace_extra_point_register_name(0, "raw_tx");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 0);
+
+    error = trace_extra_point_register_name(1, "tx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+
+    error = trace_extra_point_register_name(2, "rx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+
+    error = trace_extra_point_register_name(3, "rx_alloc_buf");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2);
+    */
 
     data->eth_driver->i_fn.get_mac(data->eth_driver, data->hw_mac);
     data->eth_driver->i_fn.raw_poll(data->eth_driver);

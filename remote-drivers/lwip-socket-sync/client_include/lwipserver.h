@@ -15,15 +15,19 @@
 #include <lwip/ip.h>
 #include <camkes/dataport.h>
 
+#ifndef ENCODE_DMA_ADDRESS
 #define ENCODE_DMA_ADDRESS(buf) ({ \
     dataport_ptr_t wrapped_ptr = dataport_wrap_ptr(buf); \
     void *new_buf = (void *)(((uintptr_t)wrapped_ptr.id << 32) | ((uintptr_t)wrapped_ptr.offset)); \
     new_buf; })
+#endif
 
+#ifndef DECODE_DMA_ADDRESS
 #define DECODE_DMA_ADDRESS(buf) ({\
         dataport_ptr_t wrapped_ptr = {.id = ((uintptr_t)buf >> 32), .offset = (uintptr_t)buf & MASK(32)}; \
         void *ptr = dataport_unwrap_ptr(wrapped_ptr); \
         ptr; })
+#endif
 
 typedef enum lwipserver_event_type {
     LWIPSERVER_PEER_AVAIL = 1,
@@ -47,5 +51,6 @@ struct tx_msg {
     tx_msg_t *next;
     void *cookie_save;
     void *client_cookie;
-    char buf[];
+    void *buf_ref; // Reference to another block of memory for zero-copy
 };
+static_assert(sizeof(struct tx_msg) <= 128, "struct tx_msg is larger than 128");
