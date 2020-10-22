@@ -21,4 +21,4 @@ CAmkESAddTemplatesPath(templates)
 DeclareCAmkESConnector(LwipBaseInit FROM lwip-init.template.c FROM_LIBS lwip-init TO empty.c)
 
 add_library(lwip-init EXCLUDE_FROM_ALL lwip-init.c)
-target_link_libraries(lwip-init sel4camkes lwip)
+target_link_libraries(lwip-init sel4camkes lwip sel4bench)

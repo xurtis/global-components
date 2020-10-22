@@ -124,6 +124,7 @@ static void rx_queue_handle(void);
 
 static void socket_cb(uint16_t ev, struct pico_socket *s)
 {
+    trace_extra_point_start(4 + 6);
     /* ZF_LOGE("\033[32mpico_socket addr = %x, ev = %d\033[0m", s, ev); */
 
     /* Find the picoserver_socket struct that houses the pico_socket */
@@ -151,13 +152,21 @@ static void socket_cb(uint16_t ev, struct pico_socket *s)
     if (client_socket->async_transport) {
         if (ev & PICO_SOCK_EV_RD) {
             ev &= ~PICO_SOCK_EV_RD;
+            trace_extra_point_start(4 + 7);
             rx_queue_handle();
+            trace_extra_point_end(4 + 7, 1);
+            trace_extra_point_start(4 + 8);
             rx_socket(client_socket);
+            trace_extra_point_end(4 + 8, 1);
         }
         if (ev & PICO_SOCK_EV_WR) {
             ev &= ~PICO_SOCK_EV_WR;
+            trace_extra_point_start(4 + 9);
             tx_queue_handle();
+            trace_extra_point_end(4 + 9, 1);
+            trace_extra_point_start(4 + 10);
             tx_socket(client_socket);
+            trace_extra_point_end(4 + 10, 1);
         }
     }
     if (ev) {
@@ -168,6 +177,7 @@ static void socket_cb(uint16_t ev, struct pico_socket *s)
 
         emit_client = 1;
     }
+    trace_extra_point_end(4 + 6, 1);
 }
 
 int pico_control_open(bool is_udp)
@@ -563,6 +573,7 @@ static void notify_client(UNUSED seL4_Word badge, void *cookie)
 
 static void tx_complete(void *cookie, int len)
 {
+    trace_extra_point_start(4 + 12);
     virtqueue_ring_object_t handle;
     handle.first = (uint32_t)(uintptr_t)cookie;
     handle.cur = (uint32_t)(uintptr_t)cookie;
@@ -570,18 +581,22 @@ static void tx_complete(void *cookie, int len)
         ZF_LOGE("TX: Error while enqueuing available buffer");
     }
     emit_client_async = true;
+    trace_extra_point_end(4 + 12, 1);
 }
 
 
 static void tx_socket(picoserver_socket_t *client_socket)
 {
+    trace_extra_point_start(4 + 2);
     if (client_socket == NULL || client_socket->socket == NULL) {
         ZF_LOGE("Socket is null");
+        trace_extra_point_end(4 + 2, 1);
         return;
     }
 
     if (client_socket->async_transport == NULL) {
         ZF_LOGE("Socket isn't setup for async");
+        trace_extra_point_end(4 + 2, 1);
         return;
     }
 
@@ -590,8 +605,10 @@ static void tx_socket(picoserver_socket_t *client_socket)
         int ret;
         tx_msg_t *msg = client_socket->async_transport->tx_pending_queue;
         if (client_socket->protocol == PICO_PROTO_UDP) {
+            trace_extra_point_start(4 + 5);
             ret = pico_socket_sendto(client_socket->socket, msg->buf + msg->done_len, msg->total_len - msg->done_len,
                                      &msg->src_addr, msg->remote_port);
+            trace_extra_point_end(4 + 5, 1);
         } else {
             ret = pico_socket_send(client_socket->socket, msg->buf + msg->done_len, msg->total_len - msg->done_len);
         }
@@ -608,6 +625,7 @@ static void tx_socket(picoserver_socket_t *client_socket)
         }
         if (ret < (msg->total_len - msg->done_len)) {
             msg->done_len += ret;
+            trace_extra_point_end(4 + 2, 1);
             return;
         } else {
             msg->done_len = msg->total_len;
@@ -618,11 +636,13 @@ static void tx_socket(picoserver_socket_t *client_socket)
             tx_complete(msg->cookie_save, msg->total_len);
         }
     }
+    trace_extra_point_end(4 + 2, 1);
 }
 
 
 static void tx_queue_handle(void)
 {
+    trace_extra_point_start(4 + 1);
     while (1) {
 
         virtqueue_ring_object_t handle;
@@ -666,7 +686,9 @@ static void tx_queue_handle(void)
         }
         int ret;
         if (client_socket->protocol == PICO_PROTO_UDP) {
+            trace_extra_point_start(4 + 5);
             ret = pico_socket_sendto(client_socket->socket, msg->buf, msg->total_len, &msg->src_addr, msg->remote_port);
+            trace_extra_point_end(4 + 5, 1);
         } else {
             ret = pico_socket_send(client_socket->socket, msg->buf, msg->total_len);
         }
@@ -689,12 +711,14 @@ static void tx_queue_handle(void)
         }
 
     }
+    trace_extra_point_end(4 + 1, 1);
 }
 
 
 
 static void rx_complete(void *cookie, int len)
 {
+    trace_extra_point_start(4 + 11);
     virtqueue_ring_object_t handle;
     handle.first = (uint32_t)(uintptr_t)cookie;
     handle.cur = (uint32_t)(uintptr_t)cookie;
@@ -702,17 +726,21 @@ static void rx_complete(void *cookie, int len)
         ZF_LOGE("RX: Error while enqueuing available buffer");
     }
     emit_client_async = true;
+    trace_extra_point_end(4 + 11, 1);
 }
 
 static void rx_socket(picoserver_socket_t *client_socket)
 {
+    trace_extra_point_start(4 + 4);
     if (client_socket == NULL || client_socket->socket == NULL) {
         ZF_LOGE("Socket is null");
+        trace_extra_point_end(4 + 4, 1);
         return;
     }
 
     if (client_socket->async_transport == NULL) {
         ZF_LOGE("Socket isn't setup for async");
+        trace_extra_point_end(4 + 4, 1);
         return;
     }
 
@@ -721,8 +749,10 @@ static void rx_socket(picoserver_socket_t *client_socket)
         int ret;
         tx_msg_t *msg = client_socket->async_transport->rx_pending_queue;
         if (client_socket->protocol == PICO_PROTO_UDP) {
+            trace_extra_point_start(4 + 13);
             ret = pico_socket_recvfrom(client_socket->socket, msg->buf + msg->done_len, msg->total_len - msg->done_len,
                                        &msg->src_addr, &msg->remote_port);
+            trace_extra_point_end(4 + 13, 1);
         } else {
             ret = pico_socket_recv(client_socket->socket, msg->buf + msg->done_len, msg->total_len - msg->done_len);
         }
@@ -736,11 +766,13 @@ static void rx_socket(picoserver_socket_t *client_socket)
                 client_socket->async_transport->rx_pending_queue_end = NULL;
             }
             rx_complete(msg->cookie_save, 0);
+            trace_extra_point_end(4 + 4, 1);
             return;
         }
         if ((client_socket->protocol == PICO_PROTO_TCP && ret < (msg->total_len - msg->done_len)) ||
             (client_socket->protocol == PICO_PROTO_UDP && ret == 0)) {
             msg->done_len += ret;
+            trace_extra_point_end(4 + 4, 1);
             return;
         } else {
             msg->done_len += ret;
@@ -751,10 +783,12 @@ static void rx_socket(picoserver_socket_t *client_socket)
             rx_complete(msg->cookie_save, msg->total_len);
         }
     }
+    trace_extra_point_end(4 + 4, 1);
 }
 
 static void rx_queue_handle(void)
 {
+    trace_extra_point_start(4 + 3);
     while (1) {
         virtqueue_ring_object_t handle;
 
@@ -798,7 +832,9 @@ static void rx_queue_handle(void)
 
         int ret;
         if (client_socket->protocol == PICO_PROTO_UDP) {
+            trace_extra_point_start(4 + 13);
             ret = pico_socket_recvfrom(client_socket->socket, msg->buf, msg->total_len, &msg->src_addr, &msg->remote_port);
+            trace_extra_point_end(4 + 13, 1);
         } else {
             ret = pico_socket_recv(client_socket->socket, msg->buf, msg->total_len);
         }
@@ -821,6 +857,7 @@ static void rx_queue_handle(void)
             rx_complete((void *)(uintptr_t)handle.first, msg->done_len);
         }
     }
+    trace_extra_point_end(4 + 3, 1);
 }
 
 static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
@@ -835,11 +872,44 @@ int picotcp_socket_sync_server_init_late(register_callback_handler_fn_t callback
 {
     callback_handler(0, "notify_client", notify_client, NULL);
 
-    int error = trace_extra_point_register_name(0, "tx_chksum");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 0);
+    int error = trace_extra_point_register_name(4 + 1, "tx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 1);
 
-    error = trace_extra_point_register_name(1, "rx_chksum");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+    error = trace_extra_point_register_name(4 + 2, "tx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 2);
+
+    error = trace_extra_point_register_name(4 + 3, "rx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 3);
+
+    error = trace_extra_point_register_name(4 + 4, "rx_socket");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 4);
+
+    error = trace_extra_point_register_name(4 + 5, "pico_socket_sendto");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 5);
+
+    error = trace_extra_point_register_name(4 + 6, "socket_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 6);
+
+    error = trace_extra_point_register_name(4 + 7, "rx_queue_handle_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 7);
+
+    error = trace_extra_point_register_name(4 + 8, "rx_socket_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 8);
+
+    error = trace_extra_point_register_name(4 + 9, "tx_queue_handle_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 9);
+
+    error = trace_extra_point_register_name(4 + 10, "tx_socket_in_cb");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 10);
+
+    error = trace_extra_point_register_name(4 + 11, "rx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 11);
+
+    error = trace_extra_point_register_name(4 + 12, "tx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 12);
+
+    error = trace_extra_point_register_name(4 + 13, "pico_socket_recvfrom");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 13);
 
     return 0;
 }

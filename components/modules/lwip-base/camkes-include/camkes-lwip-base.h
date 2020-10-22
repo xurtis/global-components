@@ -17,16 +17,16 @@ import <lwip-base.camkes>;
 
 
 #define lwip_base_interfaces(name) \
-    uses Timer name##_timer; \
     attribute string name##_ip_addr = ""; \
     attribute string name##_multicast_addr; \
     emits Init name##_init1; \
     consumes Init name##_init2;
+    //uses Timer name##_timer; \
 
 
 #define lwip_base_connections(instance, name, timeserver_interface) \
     connection LwipBaseInit instance##_##name##_init(from instance.name##_init1, to instance.name##_init2); \
-    connection seL4TimeServer instance##_##name##_timer(from instance.name##_timer, to timeserver_interface);
+    //connection seL4TimeServer instance##_##name##_timer(from instance.name##_timer, to timeserver_interface);
 
 
 #define lwip_base_configuration(instance, name, ip_addr, multicast_addr) \

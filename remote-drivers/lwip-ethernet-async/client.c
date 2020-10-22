@@ -380,7 +380,7 @@ int lwip_ethernet_async_client_init(ps_io_ops_t *io_ops, const char *tx_virtqueu
 
     /* Set some dummy IP configuration values to get lwIP bootstrapped  */
     struct ip4_addr netmask, ipaddr, gw, multicast;
-    ipaddr_aton("0.0.0.0", &gw);
+    ipaddr_aton("10.13.0.1", &gw);
     ipaddr_aton("0.0.0.0", &ipaddr);
     ipaddr_aton("0.0.0.0", &multicast);
     ipaddr_aton("255.255.255.0", &netmask);

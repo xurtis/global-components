@@ -273,12 +273,15 @@ static void tx_socket(lwipserver_socket_t *socket)
 static void tx_queue_handle(void)
 {
     //trace_extra_point_start(4 + 1);
+    //trace_extra_point_start(3);
     int error;
     err_t ret;
 
     while (1) {
+        //trace_extra_point_start(4);
         virtqueue_ring_object_t handle;
         if (virtqueue_get_available_buf(&tx_virtqueue, &handle) == 0) {
+            //trace_extra_point_end(4, 1);
             break;
         }
 
@@ -288,6 +291,7 @@ static void tx_queue_handle(void)
         int more = virtqueue_gather_available(&tx_virtqueue, &handle, (void **) &offset, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
+            //trace_extra_point_end(4, 1);
             break;
         }
 
@@ -295,12 +299,15 @@ static void tx_queue_handle(void)
         ZF_LOGF_IF(msg == NULL, "msg is null");
         ZF_LOGF_IF((msg->total_len > 1400) || (msg->total_len == 0),
                    "bad msg len in tx %zd", msg->total_len);
+        //trace_extra_point_end(4, 1);
 
+        //trace_extra_point_start(5);
         error = server_check_common(msg->socket_fd);
         if (error) {
             ZF_LOGE("Socket is null");
             msg->done_len = -1;
             tx_complete((void*)(uintptr_t)handle.first, 0);
+            //trace_extra_point_end(5, 1);
             continue;
         }
 
@@ -310,6 +317,7 @@ static void tx_queue_handle(void)
             ZF_LOGE("Socket isn't setup for async");
             msg->done_len = -1;
             tx_complete((void*)(uintptr_t)handle.first, 0);
+            //trace_extra_point_end(5, 1);
             continue;
 
         }
@@ -321,12 +329,15 @@ static void tx_queue_handle(void)
             socket->async_socket->tx_pending_queue_end = msg;
             msg->next = NULL;
             msg->cookie_save = (void*)(uintptr_t)handle.first;
+            //trace_extra_point_end(5, 1);
             continue;
         }
+        //trace_extra_point_end(5, 1);
 
         struct pbuf *p = NULL;
 
         if (socket->proto == UDP) {
+            //trace_extra_point_start(6);
             //trace_extra_point_start(4 + 24);
             p = pbuf_alloc_reference(msg->buf_ref, msg->total_len,
                                      PBUF_REF);
@@ -338,11 +349,13 @@ static void tx_queue_handle(void)
             } else {
                 error = ERR_MEM;
             }
+            //trace_extra_point_end(6, 1);
         } else {
             //ret = tcp_write(socket->tcp_pcb, msg->buf + msg->done_len,
                             //msg->total_len - msg->done_len, TCP_WRITE_FLAG_COPY);
         }
 
+        //trace_extra_point_start(7);
         if (p != NULL) {
             //trace_extra_point_start(4 + 18);
             pbuf_free(p);
@@ -359,7 +372,9 @@ static void tx_queue_handle(void)
 
         msg->done_len = msg->total_len;
         tx_complete((void*)(uintptr_t)handle.first, msg->total_len);
+        //trace_extra_point_end(7, 1);
     }
+    //trace_extra_point_end(3, 1);
     //trace_extra_point_end(4 + 1, 1);
 }
 
@@ -524,8 +539,14 @@ static void rx_queue_handle(void)
 
 static void tx_queue_handle_irq(seL4_Word badge, void *cookie)
 {
+    //trace_extra_point_start(2);
+    //trace_extra_point_start(0);
     rx_queue_handle();
+    //trace_extra_point_end(0, 1);
+    //trace_extra_point_start(1);
     tx_queue_handle();
+    //trace_extra_point_end(1, 1);
+    //trace_extra_point_end(2, 1);
 }
 
 static err_t lwipserver_sent_callback(void *arg, struct tcp_pcb *pcb, u16_t len)
@@ -1204,10 +1225,36 @@ int lwip_socket_sync_server_init_late(ps_io_ops_t *io_ops, register_callback_han
 {
     callback_handler(0, "lwip_notify_client", notify_client, NULL);
 
-    /*
-    int error = trace_extra_point_register_name(4 + 1, "tx_queue_handle");
-    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 1);
+    int error = trace_extra_point_register_name(0, "inet_pseudo_chksum");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 0");
 
+    /*
+    int error = trace_extra_point_register_name(0, "rx_queue_handle_in_handler");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 0");
+
+    error = trace_extra_point_register_name(1, "tx_queue_handle_in_handler");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 1");
+
+    error = trace_extra_point_register_name(2, "tx_queue_handle_irq");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2);
+
+    error = trace_extra_point_register_name(3, "tx_queue_handle");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 3);
+
+    error = trace_extra_point_register_name(4, "virtqueue_prologue");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4);
+
+    error = trace_extra_point_register_name(5, "tx_checks");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 5);
+
+    error = trace_extra_point_register_name(6, "udp_tx");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 6);
+
+    error = trace_extra_point_register_name(7, "send_cleanup");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 7);
+    */
+
+    /*
     error = trace_extra_point_register_name(4 + 2, "tx_socket");
     ZF_LOGF_IF(error, "Failed to register extra trace point %d", 4 + 2);
 

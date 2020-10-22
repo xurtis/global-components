@@ -73,6 +73,7 @@ static size_t mapper_len;
 
 static int pico_eth_send(struct pico_device *dev, void *input_buf, int len)
 {
+    trace_extra_point_start(0);
     state_t *state = (state_t *)dev;
 
     virtqueue_ring_object_t handle;
@@ -83,6 +84,7 @@ static int pico_eth_send(struct pico_device *dev, void *input_buf, int len)
             state->num_tx --;
             buf = state->pending_tx[state->num_tx];
         } else {
+            trace_extra_point_end(0, 1);
             // No free packets to use.
             return 0;
         }
@@ -97,7 +99,9 @@ static int pico_eth_send(struct pico_device *dev, void *input_buf, int len)
     }
 
     /* copy the packet over */
+    trace_extra_point_start(3);
     memcpy(buf, input_buf, len);
+    trace_extra_point_end(3, 1);
     ps_dma_cache_clean(&state->io_ops->dma_manager, buf, len);
 
     virtqueue_init_ring_object(&handle);
@@ -105,13 +109,14 @@ static int pico_eth_send(struct pico_device *dev, void *input_buf, int len)
         ZF_LOGF("pico_eth_send: Error while enqueuing available buffer, queue full");
     }
     state->action = true;
+    trace_extra_point_end(0, 1);
     return len;
 }
 
 
 static void pico_free_buf(uint8_t *buf)
 {
-
+    trace_extra_point_start(4);
     /* Pico doesn't allow callbacks to be registered with cookies...
      * We rely on the fact that the buffer was allocated from a dataport and use
      * the dataport ID to find the driver state from a global mapper array.
@@ -130,11 +135,13 @@ static void pico_free_buf(uint8_t *buf)
     if (!virtqueue_add_available_buf(&state->rx_virtqueue, &handle, ENCODE_DMA_ADDRESS(buf), BUF_SIZE, VQ_RW)) {
         ZF_LOGF("Error while enqueuing available buffer");
     }
+    trace_extra_point_end(4, 1);
 }
 
 /* Async driver will set a flag to signal that there is work to be done  */
 static int pico_eth_poll(struct pico_device *dev, int loop_score)
 {
+    trace_extra_point_start(1);
     state_t *state = (state_t *)dev;
     while (loop_score > 0) {
         virtqueue_ring_object_t handle;
@@ -161,7 +168,9 @@ static int pico_eth_poll(struct pico_device *dev, int loop_score)
 
         if (len > 0) {
             ps_dma_cache_invalidate(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), len);
+            trace_extra_point_start(2);
             int err = pico_stack_recv(dev, DECODE_DMA_ADDRESS(buf), len);
+            trace_extra_point_end(2, 1);
             if (err <= 0) {
                 ZF_LOGE("Failed to rx buffer in poll");
                 break;
@@ -173,6 +182,7 @@ static int pico_eth_poll(struct pico_device *dev, int loop_score)
 
         loop_score--;
     }
+    trace_extra_point_end(1, 1);
     return loop_score;
 }
 
@@ -195,6 +205,22 @@ int picotcp_ethernet_async_client_init_late(void *cookie, register_callback_hand
 {
     state_t *data = cookie;
     register_handler(0, "notify_ethernet", notify_server, data);
+
+    int error = trace_extra_point_register_name(0, "pico_eth_send");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 0");
+
+    error = trace_extra_point_register_name(1, "pico_eth_poll");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 1");
+
+    error = trace_extra_point_register_name(2, "pico_stack_recv");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 2");
+
+    error = trace_extra_point_register_name(3, "memcpy");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 3");
+
+    error = trace_extra_point_register_name(4, "pico_free_buf");
+    ZF_LOGF_IF(error, "Failed to register extra trace point 4");
+
     return 0;
 }
 

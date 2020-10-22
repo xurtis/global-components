@@ -43,6 +43,7 @@ typedef struct data {
 
 static void eth_tx_complete(void *iface, void *cookie)
 {
+    trace_extra_point_start(1);
     server_data_t *state = iface;
 
     virtqueue_ring_object_t handle;
@@ -54,11 +55,14 @@ static void eth_tx_complete(void *iface, void *cookie)
     if (state->blocked_tx) {
         state->action = true;
     }
+    trace_extra_point_end(1, 1);
 }
 
 static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie)
 {
+    trace_extra_point_start(3);
     if (buf_size > BUF_SIZE) {
+        trace_extra_point_end(3, 1);
         return 0;
     }
     server_data_t *state = iface;
@@ -68,6 +72,7 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
     if (virtqueue_get_available_buf(&state->rx_virtqueue, &handle) == 0) {
         // No buffer available to fill RX ring with.
         state->no_rx_bufs = true;
+        trace_extra_point_end(3, 1);
         return 0;
     }
     state->no_rx_bufs = false;
@@ -81,11 +86,13 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
 
     uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
     *cookie = (void *)(uintptr_t) handle.first;
+    trace_extra_point_end(3, 1);
     return phys;
 }
 
 static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, unsigned int *lens)
 {
+    trace_extra_point_start(2);
     server_data_t *state = iface;
     if (num_bufs != 1) {
         ZF_LOGE("Dropping packets because num_received didn't match descriptor");
@@ -98,6 +105,7 @@ static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, 
             }
         }
         state->action = true;
+        trace_extra_point_end(2, 1);
         return;
 
     }
@@ -108,6 +116,7 @@ static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, 
         ZF_LOGF("eth_rx_complete: Error while enqueuing used buffer, queue full");
     }
     state->action = true;
+    trace_extra_point_end(2, 1);
     return;
 }
 
@@ -157,8 +166,10 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
         }
 
         uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
+        trace_extra_point_start(0);
         int err = state->eth_driver->i_fn.raw_tx(state->eth_driver, 1, (uintptr_t *) &phys, (unsigned int *)&len,
                                                  (void *)(uintptr_t)handle.first);
+        trace_extra_point_end(0, 1);
         if (err != ETHIF_TX_ENQUEUED) {
             state->blocked_tx = true;
             break;
@@ -243,6 +254,18 @@ int picotcp_ethernet_async_server_init(ps_io_ops_t *io_ops, const char *tx_virtq
 
     data->eth_driver->i_fn.get_mac(data->eth_driver, data->hw_mac);
     data->eth_driver->i_fn.raw_poll(data->eth_driver);
+
+    error = trace_extra_point_register_name(0, "raw_tx");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 0);
+
+    error = trace_extra_point_register_name(1, "tx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+
+    error = trace_extra_point_register_name(2, "rx_complete");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 1);
+
+    error = trace_extra_point_register_name(3, "rx_alloc_buf");
+    ZF_LOGF_IF(error, "Failed to register extra trace point %d", 2);
 
     register_get_mac_fn(client_get_mac, data);
     return 0;

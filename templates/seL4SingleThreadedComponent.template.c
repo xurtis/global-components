@@ -35,8 +35,11 @@ extern camkes_module_init_fn_t __stop__post_init[];
 
 static ps_io_ops_t io_ops;
 
+uint64_t init_cycles;
 
 void pre_init(void) {
+    ccnt_t start;
+    SEL4BENCH_READ_CCNT(start);
     int err = camkes_io_ops(&io_ops);
     if (err) {
         ZF_LOGE("Failed to initialize io_ops");
@@ -66,6 +69,9 @@ void pre_init(void) {
         }
 
     }
+    ccnt_t end;
+    SEL4BENCH_READ_CCNT(end);
+    init_cycles = end - start;
 }
 
 
@@ -108,7 +114,7 @@ int single_threaded_component_register_handler(seL4_Word badge, const char* name
 
 /*- if configuration[me.name].get("enable_tracing", 0) == 1 -*/
 //#define NUM_TRACES /*? configuration[me.name].get("number_tracepoints", 10) ?*/
-#define NUM_TRACES 20
+#define NUM_TRACES 30
 
 #define START_INDEX 0
 #define SUM_INDEX 1
@@ -149,20 +155,16 @@ static trace_point_t extra_trace_points[NUM_TRACES];
 #define TRACE_END(num) TRACE_END_COUNT(num, 1)
 
 #define EXTRA_TRACE_START(num) do { \
-        if (num < NUM_TRACES) { \
-            ccnt_t val; \
-            SEL4BENCH_READ_CCNT(val); \
-            extra_trace_points[num].start = val; \
-        } \
+        ccnt_t val; \
+        SEL4BENCH_READ_CCNT(val); \
+        extra_trace_points[num].start = val; \
 } while (0)
 
 #define EXTRA_TRACE_END_COUNT(num, count) do { \
-        if (num < NUM_TRACES) { \
-            ccnt_t val; \
-            SEL4BENCH_READ_CCNT(val); \
-            extra_trace_points[num].sum += val - extra_trace_points[num].start; \
-            extra_trace_points[num].num_tripped += count; \
-        } \
+        ccnt_t val; \
+        SEL4BENCH_READ_CCNT(val); \
+        extra_trace_points[num].sum += val - extra_trace_points[num].start; \
+        extra_trace_points[num].num_tripped += count; \
 } while (0)
 
 static int num_extra_tp = 0;
@@ -184,6 +186,7 @@ void trace_start(void *_arg) {
 
 void trace_stop(void *_arg) {
     printf("traces:%s\n", get_instance_name());
+    printf("init cycles,%ld\n", init_cycles);
     for (int i = 0; i < MIN(NUM_TRACES, num_handlers+REGISTERED_HANDLERS_START); i++) {
         if (i == ENDPOINTS_TRACE) {
             printf("total_endpoint_calls,");

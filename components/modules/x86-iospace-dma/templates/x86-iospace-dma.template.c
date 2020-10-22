@@ -22,6 +22,7 @@
 #include <sel4utils/vspace.h>
 #include <sel4utils/iommu_dma.h>
 #include <sel4platsupport/arch/io.h>
+#include <sel4utils/arch/tsc.h>
 
 seL4_CPtr(*original_vspace_get_cap)(vspace_t *, void *);
 
