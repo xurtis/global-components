@@ -85,7 +85,7 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
         return 0;
     }
     state->no_rx_bufs = false;
-    void *buf;
+    uint64_t buf;
     unsigned len;
     vq_flags_t flag;
     int more = virtqueue_gather_available(&state->rx_virtqueue, &handle, &buf, &len, &flag);
@@ -164,7 +164,7 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
 
         void *cookie = (void *) (uintptr_t) handle.first;
 
-        void *buf;
+        uint64_t buf;
         unsigned len;
         vq_flags_t flag;
         int num_bufs = 0;

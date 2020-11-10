@@ -214,7 +214,7 @@ static void lwip_eth_poll(state_t *state)
 
         handle.cur = handle.first;
 
-        void *buf;
+        uint64_t buf;
         vq_flags_t flag;
         int more = virtqueue_gather_used(&state->rx_virtqueue, &handle, &buf, &len, &flag);
         if (more == 0) {

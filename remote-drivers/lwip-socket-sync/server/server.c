@@ -285,7 +285,7 @@ static void tx_queue_handle(void)
             break;
         }
 
-        uintptr_t offset;
+        uint64_t buf;
         unsigned len;
         vq_flags_t flag;
         int more = virtqueue_gather_available(&tx_virtqueue, &handle, (void **) &offset, &len, &flag);
@@ -468,7 +468,7 @@ static void rx_queue_handle(void)
             break;
         }
 
-        uintptr_t offset;
+        uint64_t buf;
         unsigned len;
         vq_flags_t flag;
         int more = virtqueue_gather_available(&rx_virtqueue, &handle, (void **) &offset, &len, &flag);

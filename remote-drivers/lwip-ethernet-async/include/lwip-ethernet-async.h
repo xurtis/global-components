@@ -16,14 +16,14 @@
 #define ENCODE_DMA_ADDRESS(buf) ({ \
     dataport_ptr_t wrapped_ptr = dataport_wrap_ptr(buf); \
     ZF_LOGF_IF(wrapped_ptr.id == -1, "Failed to encode DMA address"); \
-    void *new_buf = (void *)(((uintptr_t)wrapped_ptr.id << 32) | ((uintptr_t)wrapped_ptr.offset)); \
+    uint64_t new_buf = (((uint64_t)wrapped_ptr.id << 32) | ((uint64_t)wrapped_ptr.offset)); \
     new_buf; })
 
 #define DECODE_DMA_ADDRESS(buf) ({\
-        dataport_ptr_t wrapped_ptr = {.id = ((uintptr_t)buf >> 32), .offset = (uintptr_t)buf & MASK(32)}; \
-        void *ptr = dataport_unwrap_ptr(wrapped_ptr); \
-        ZF_LOGF_IF(ptr == NULL, "Failed to decode DMA address"); \
-        ptr; })
+    dataport_ptr_t wrapped_ptr = {.id = ((uint64_t)buf >> 32), .offset = (uint64_t)buf & MASK(32)}; \
+    void *ptr = dataport_unwrap_ptr(wrapped_ptr); \
+    ZF_LOGF_IF(ptr == NULL, "Failed to decode DMA address"); \
+    ptr; })
 
 typedef void(*get_mac_server_fn_t)(uint8_t *b1, uint8_t *b2, uint8_t *b3, uint8_t *b4, uint8_t *b5, uint8_t *b6,
                                    void *cookie);
