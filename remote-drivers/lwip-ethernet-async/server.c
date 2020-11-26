@@ -168,10 +168,22 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
         unsigned len;
         vq_flags_t flag;
         int num_bufs = 0;
+        uintptr_t decoded_buf;
 
         while (virtqueue_gather_available(&state->tx_virtqueue, &handle, &buf, &len, &flag)) {
-            ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
-            phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
+            decoded_buf = DECODE_DMA_ADDRESS(buf);
+            ZF_LOGF_IF(decoded_buf == NULL, "decoded DMA buffer is NULL");
+            /* HACK: Align the buffers for any zero-copy buffers
+             * The sabre platform requires that buffers have to be aligned to
+             * 8-bytes, so we memmove the contents of the buffer to the start of
+             * the DMA frame which should be aligned to a 2048 boundary */
+            if (decoded_buf & 0xff) {
+                memmove(decoded_buf & ~(0xff), decoded_buf, len);
+                decoded_buf &= ~(0xff);
+                //ZF_LOGE("contents of decoded_buf = %s", decoded_buf);
+            }
+            ps_dma_cache_clean_invalidate(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
+            phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
             len_ring[num_bufs] = len;
             num_bufs++;
             ZF_LOGF_IF(num_bufs == 32, "too many bufs to cache");
