@@ -79,12 +79,14 @@ LWIP_MEMPOOL_DECLARE(RX_POOL, NUM_BUFS, sizeof(lwip_custom_pbuf_t), "Zero-copy R
 /* 1500 is the standard ethernet MTU at the network layer. */
 #define ETHER_MTU 1500
 
+unsigned in_queue;
+
 static void lwip_recycle_tx_bufs(state_t *state, bool once)
 {
     virtqueue_ring_object_t handle;
     virtqueue_init_ring_object(&handle);
     unsigned len = 0;
-    void *buf;
+    uint64_t buf;
     int collected = 0;
 
     int more = virtqueue_get_used_buf(&state->tx_virtqueue, &handle, &len);
@@ -106,11 +108,16 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
             state->pending_tx[state->num_tx] = (void *) decoded_buf;
             state->num_tx++;
             collected++;
+            in_queue--;
         }
+        virtqueue_init_ring_object(&handle);
         more = virtqueue_get_used_buf(&state->tx_virtqueue, &handle, &len);
         if (once) {
             break;
         }
+    }
+    if (collected > 0) {
+        //ZF_LOGE("collected %d bufs", collected);
     }
 }
 
@@ -131,10 +138,15 @@ static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
             /* Zero-copy TX payload */
             buf = curr->payload;
         } else {
+            if (state->num_tx == 0) {
+                lwip_recycle_tx_bufs(state, true);
+            }
+
             if (state->num_tx != 0) {
                 state->num_tx--;
                 buf = state->pending_tx[state->num_tx];
             } else {
+                ZF_LOGF("ded");
                 //trace_extra_point_end(0, 1);
                 return ERR_MEM;
             }
@@ -142,17 +154,20 @@ static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
             memcpy(buf, curr->payload, curr->len);
         }
 
-        ps_dma_cache_clean(&state->io_ops->dma_manager, buf, curr->len);
+        //ps_dma_cache_clean(&state->io_ops->dma_manager, buf, curr->len);
 
+        in_queue++;
+
+        //ZF_LOGE("sending buf = %x", buf);
         ZF_LOGF_IF(ENCODE_DMA_ADDRESS(buf) == NULL, "encoded DMA buffer is NULL");
         if (!virtqueue_add_available_buf(&state->tx_virtqueue, &avail_ring, ENCODE_DMA_ADDRESS(buf), curr->len, VQ_RW)) {
-            ZF_LOGF("pico_eth_send: Error while enqueuing available buffer, queue full");
+            ZF_LOGF("lwip_eth_send: Error while enqueuing available buffer, queue full");
         }
     }
 
     state->action = true;
 
-    //trace_extra_point_end(0, 1);
+    trace_extra_point_end(0, 1);
     return ERR_OK;
 }
 
@@ -230,6 +245,7 @@ static void lwip_eth_poll(state_t *state)
             lwip_custom_pbuf_t *custom_pbuf = (lwip_custom_pbuf_t *) LWIP_MEMPOOL_ALLOC(RX_POOL);
             assert(custom_pbuf != NULL);
             custom_pbuf->p.custom_free_function = lwip_rx_free_buf;
+            //ZF_LOGE("poll dma_buf = %x", DECODE_DMA_ADDRESS(buf));
             custom_pbuf->dma_buf = DECODE_DMA_ADDRESS(buf);
             custom_pbuf->is_echo = false;
             struct pbuf *p = pbuf_alloced_custom(PBUF_RAW, len, PBUF_REF, &custom_pbuf->p, custom_pbuf->dma_buf, BUF_SIZE);
@@ -380,7 +396,7 @@ int lwip_ethernet_async_client_init(ps_io_ops_t *io_ops, const char *tx_virtqueu
 
     /* Set some dummy IP configuration values to get lwIP bootstrapped  */
     struct ip4_addr netmask, ipaddr, gw, multicast;
-    ipaddr_aton("10.13.0.1", &gw);
+    ipaddr_aton("0.0.0.0", &gw);
     ipaddr_aton("0.0.0.0", &ipaddr);
     ipaddr_aton("0.0.0.0", &multicast);
     ipaddr_aton("255.255.255.0", &netmask);

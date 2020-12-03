@@ -19,17 +19,11 @@
 #include <sel4/benchmark_utilisation_types.h>
 #include <camkes/dataport_caps.h>
 #include <string.h>
-#include <sel4/log.h>
+//#include <sel4/log.h>
 
 #define MAGIC_CYCLES 150
-/* We're interested in the generic events as well as:
- * - HASWELL_RESOURCE_STALLS_ANY
- * - HASWELL_RESOURCE_STALLS_RS
- * - HASWELL_RESOURCE_STALLS_SB
- * - HASWELL_RESOURCE_STALLS_ROB */
 
 char *counter_names[] = {
-    /*
     "L1 i-cache misses",
     "L1 d-cache misses",
     "L1 i-tlb misses",
@@ -37,15 +31,15 @@ char *counter_names[] = {
     "Instructions",
     "Branch mispredictions",
     "Memory accesses",
-     */
+    /*
     "Resource stalls any",
     "Resource stalls reservation station",
     "Resource stalls store buffer",
     "Resource stalls ROB",
+     */
 };
 
 event_id_t benchmarking_events[] = {
-    /*
     SEL4BENCH_EVENT_CACHE_L1I_MISS,
     SEL4BENCH_EVENT_CACHE_L1D_MISS,
     SEL4BENCH_EVENT_TLB_L1I_MISS,
@@ -53,11 +47,12 @@ event_id_t benchmarking_events[] = {
     SEL4BENCH_EVENT_EXECUTE_INSTRUCTION,
     SEL4BENCH_EVENT_BRANCH_MISPREDICT,
     SEL4BENCH_EVENT_MEMORY_ACCESS,
-    */
+    /*
     SEL4BENCH_IA32_HASWELL_EVENT_RESOURCE_STALLS_ANY,
     SEL4BENCH_IA32_HASWELL_EVENT_RESOURCE_STALLS_RS,
     SEL4BENCH_IA32_HASWELL_EVENT_RESOURCE_STALLS_SB,
     SEL4BENCH_IA32_HASWELL_EVENT_RESOURCE_STALLS_ROB,
+    */
 };
 
 struct {
@@ -108,10 +103,8 @@ void idle_start(void)
     if (!flag) {
         flag = 1;
         printf("Measurment starting...\n");
-        /*
         sel4bench_reset_counters();
         sel4bench_start_counters(benchmark_bf);
-        */
         trace_start_emit();
 #ifdef CONFIG_BENCHMARK_TRACK_UTILISATION
         seL4_BenchmarkResetAllThreadsUtilisation();
@@ -123,20 +116,20 @@ void idle_start(void)
     }
 }
 
-static void print_pcs(seL4_Word num_entries)
-{
-    seL4_LogBuffer log_buffer = seL4_LogBuffer_new(bench_buffer);
-    printf("idle entries = %lu\n", log_buffer.buffer[0]);
-    /* Skip the first entry */
-    log_buffer.index = 2;
-    seL4_LogBuffer_setSize(&log_buffer, num_entries);
-    seL4_LogEvent *curr_event = seL4_LogBuffer_next(&log_buffer);
-    for (; curr_event != seL4_Null; curr_event = seL4_LogBuffer_next(&log_buffer)) {
-        seL4_Log_Type(Sample) *sample = seL4_Log_Cast(Sample) curr_event;
-        printf(",%lu,%lx", sample->header.data, sample->pc);
-    }
-    printf("\n");
-}
+/* static void print_pcs(seL4_Word num_entries) */
+/* { */
+/*     seL4_LogBuffer log_buffer = seL4_LogBuffer_new(bench_buffer); */
+/*     printf("idle entries = %lu\n", log_buffer.buffer[0]); */
+/*     /\* Skip the first entry *\/ */
+/*     log_buffer.index = 2; */
+/*     seL4_LogBuffer_setSize(&log_buffer, num_entries); */
+/*     seL4_LogEvent *curr_event = seL4_LogBuffer_next(&log_buffer); */
+/*     for (; curr_event != seL4_Null; curr_event = seL4_LogBuffer_next(&log_buffer)) { */
+/*         seL4_Log_Type(Sample) *sample = seL4_Log_Cast(Sample) curr_event; */
+/*         printf(",%lu,%lx", sample->header.data, sample->pc); */
+/*     } */
+/*     printf("\n"); */
+/* } */
 
 void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
 {
@@ -148,11 +141,12 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
     }
     total += ULONG_MAX * (overflows - idle_overflow_start);
     uint64_t idle_total = ccount - idle_ccount_start;
-    //sel4bench_read_and_stop_counters(benchmark_bf, 0, 8, counter_values);
+    sel4bench_read_and_stop_counters(benchmark_bf, 0, 8, counter_values);
 #ifdef CONFIG_BENCHMARK_TRACK_UTILISATION
-    num_entries = seL4_BenchmarkFinalizeLog();
-    ZF_LOGE("num_entries = %lu", num_entries);
-    print_pcs(num_entries);
+    seL4_BenchmarkFinalizeLog();
+    //num_entries = seL4_BenchmarkFinalizeLog();
+    //ZF_LOGE("num_entries = %lu", num_entries);
+    //print_pcs(num_entries);
 
     seL4_BenchmarkGetThreadUtilisation(camkes_get_tls()->tcb_cap);
     uint64_t *buffer = (uint64_t *)&seL4_GetIPCBuffer()->msg[0];
@@ -165,13 +159,11 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
     *idle_ret = idle_total;
     trace_stop_emit();
     /* Dump the counters */
-    /*
     printf("{\n");
     for (int i = 0; i < ARRAY_SIZE(benchmarking_events); i++) {
         printf("    %s:%lu\n", counter_names[i], counter_values[i]);
     }
     printf("}\n");
-    */
     memset(counter_values, 0, 8);
 }
 
@@ -211,15 +203,15 @@ extern dataport_caps_handle_t bench_buffer_handle;
 void pre_init(void)
 {
     sel4bench_init();
-    /*
     seL4_Word n_counters = sel4bench_get_num_counters();
     int n_chunks = sel4bench_get_num_counter_chunks(n_counters, ARRAY_SIZE(benchmarking_events));
     benchmark_bf = sel4bench_enable_counters(ARRAY_SIZE(benchmarking_events),
                                              benchmarking_events, 0, n_counters);
-    */
+    /*
     seL4_CPtr log_cap = dataport_get_nth_frame_cap(&bench_buffer_handle, 0);
     seL4_Error sel4_err = seL4_BenchmarkSetLogBuffer(log_cap);
     ZF_LOGF_IF(sel4_err != seL4_NoError, "Failed to set log buffer");
+    */
 
     int err = bench_to_reg_callback(&count_idle, NULL);
     if (err) {

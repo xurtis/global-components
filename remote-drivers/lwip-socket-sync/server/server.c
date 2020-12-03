@@ -288,14 +288,14 @@ static void tx_queue_handle(void)
         uint64_t buf;
         unsigned len;
         vq_flags_t flag;
-        int more = virtqueue_gather_available(&tx_virtqueue, &handle, (void **) &offset, &len, &flag);
+        int more = virtqueue_gather_available(&tx_virtqueue, &handle, &buf, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
             //trace_extra_point_end(4, 1);
             break;
         }
 
-        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&tx_virtqueue, offset);
+        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&tx_virtqueue, buf);
         ZF_LOGF_IF(msg == NULL, "msg is null");
         ZF_LOGF_IF((msg->total_len > 1400) || (msg->total_len == 0),
                    "bad msg len in tx %zd", msg->total_len);
@@ -471,13 +471,13 @@ static void rx_queue_handle(void)
         uint64_t buf;
         unsigned len;
         vq_flags_t flag;
-        int more = virtqueue_gather_available(&rx_virtqueue, &handle, (void **) &offset, &len, &flag);
+        int more = virtqueue_gather_available(&rx_virtqueue, &handle, &buf, &len, &flag);
         if (more == 0) {
             ZF_LOGE("No message received");
             break;
         }
 
-        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&rx_virtqueue, offset);
+        tx_msg_t *msg = camkes_virtqueue_device_offset_to_buffer(&rx_virtqueue, buf);
         ZF_LOGF_IF(msg == NULL, "msg is null");
         ZF_LOGF_IF((msg->total_len > 1400) || (msg->total_len == 0), "bad msg len in rx %zd", msg->total_len);
 

@@ -147,6 +147,7 @@ static void client_get_mac(uint8_t *b1, uint8_t *b2, uint8_t *b3, uint8_t *b4, u
 
 static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
 {
+    int sent = 0;
     server_data_t *state = cookie;
     if (state->no_rx_bufs) {
         state->eth_driver->i_fn.raw_poll(state->eth_driver);
@@ -184,10 +185,13 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
             }
             ps_dma_cache_clean_invalidate(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
             phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
+            //ZF_LOGE("before raw_tx buf = %x, pinned buf = %x", decoded_buf, phys_ring[num_bufs]);
             len_ring[num_bufs] = len;
             num_bufs++;
             ZF_LOGF_IF(num_bufs == 32, "too many bufs to cache");
         }
+
+        sent += num_bufs;
 
         int err = state->eth_driver->i_fn.raw_tx(state->eth_driver, num_bufs, phys_ring, len_ring, cookie);
 
@@ -198,6 +202,9 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
             state->blocked_tx = false;
             virtqueue_get_available_buf(&state->tx_virtqueue, &handle);
         }
+    }
+    if (sent > 0) {
+        //ZF_LOGE("sent %d packets", sent);
     }
 }
 

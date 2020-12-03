@@ -38,8 +38,6 @@ static ps_io_ops_t io_ops;
 uint64_t init_cycles;
 
 void pre_init(void) {
-    ccnt_t start;
-    SEL4BENCH_READ_CCNT(start);
     int err = camkes_io_ops(&io_ops);
     if (err) {
         ZF_LOGE("Failed to initialize io_ops");
@@ -69,9 +67,6 @@ void pre_init(void) {
         }
 
     }
-    ccnt_t end;
-    SEL4BENCH_READ_CCNT(end);
-    init_cycles = end - start;
 }
 
 

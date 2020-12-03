@@ -31,9 +31,6 @@ uint64_t (*timer_get_time_fn)(void);
 
 u32_t sys_now(void)
 {
-    uint64_t tsc_frequency = 3400000000;
-    uint64_t cycle_count = sel4bench_get_cycle_count();
-    return cycle_count / tsc_frequency * 1000;
     if (!timers_initialised) {
         /* lwip_init() will call this when initialising its own timers,
          * but the timer RPC is not set up at this point so just return 0 */
@@ -86,29 +83,29 @@ typedef int (*register_callback_handler_fn_t)(seL4_Word badge, const char *,
 int init_lwip_post(ps_io_ops_t *io_ops, seL4_Word timer_badge, int (*timer_periodic)(int p_tid, uint64_t p_ns), uint64_t (*timer_get_time)(void),
                    const char *ip_addr, const char *multicast_addr_, register_callback_handler_fn_t callback_handler)
 {
+    timers_initialised = true;
+
     struct netif *netif = netif_find("e0");
     if (netif == NULL) {
         ZF_LOGE("No device registered to call dhcp on or start");
     }
 
-    //timer_get_time_fn = timer_get_time;
+    timer_get_time_fn = timer_get_time;
 
     /* if ip_addr is configured, use it; otherwise get an IP address from DHCP */
     if (strlen(ip_addr)) {
         eth_init_custom_ip(netif, ip_addr, multicast_addr_);
         netif_set_up(netif);
     } else {
-        //netif_set_status_callback(netif, netif_status_callback);
+        netif_set_status_callback(netif, netif_status_callback);
         netif_set_up(netif);
-        //ZF_LOGF_IF(dhcp_start(netif), "Failed to initiate the DHCP negotiation");
+        ZF_LOGF_IF(dhcp_start(netif), "Failed to initiate the DHCP negotiation");
     }
 
     //callback_handler(timer_badge, "lwip_stack_tick_callback", stack_tick_callback, NULL);
     callback_handler(0, "lwip_stack_tick_callback", stack_tick_callback, NULL);
     /* Start the timer for the TCP stack */
     //timer_periodic(0, NS_IN_MS * LWIP_TICK_MS);
-
-    //timers_initialised = true;
 
     return 0;
 }
