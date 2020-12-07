@@ -87,7 +87,6 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
     virtqueue_init_ring_object(&handle);
     unsigned len = 0;
     uint64_t buf;
-    int collected = 0;
 
     int more = virtqueue_get_used_buf(&state->tx_virtqueue, &handle, &len);
     while (more) {
@@ -98,7 +97,8 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
             if (more == 0) {
                 break;
             }
-            ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
+            assert(DECODE_DMA_ADDRESS(buf) == NULL);
+            //ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
 
             uintptr_t decoded_buf = DECODE_DMA_ADDRESS(buf);
             /* HACK: lwIP bumps the RX payload to be the start of the UDP
@@ -107,8 +107,6 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
             decoded_buf &= ~(0xff);
             state->pending_tx[state->num_tx] = (void *) decoded_buf;
             state->num_tx++;
-            collected++;
-            in_queue--;
         }
         virtqueue_init_ring_object(&handle);
         more = virtqueue_get_used_buf(&state->tx_virtqueue, &handle, &len);
@@ -116,27 +114,39 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
             break;
         }
     }
-    if (collected > 0) {
-        //ZF_LOGE("collected %d bufs", collected);
-    }
 }
 
 static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
 {
-    //trace_extra_point_start(0);
     state_t *state = (state_t *)netif->state;
 
     virtqueue_ring_object_t avail_ring;
     virtqueue_init_ring_object(&avail_ring);
-    /* HACK: This is a bad hack that assumes we zero-copy all buffers, it
-     * especially assumes that the pbufs we create for udp_sendto contains these
-     * flags */
+    /* HACK: This is a bad hack that assumes all 2-chained pbufs are part of the
+     * zero-copy solution */
+    int num_pbufs = 0;
     for (struct pbuf *curr = p; curr != NULL; curr = curr->next) {
-        void *buf;
-        dataport_ptr_t ptr = dataport_wrap_ptr(curr->payload);
+        num_pbufs++;
+    }
+
+    ZF_LOGF_IF(num_pbufs > 2, "Wot! More than 2 pbufs");
+
+    void *buf;
+    if (num_pbufs == 2) {
+        struct pbuf *first_pbuf = p;
+        struct pbuf *second_pbuf = p->next;
+        ZF_LOGF_IF(second_pbuf->flags & PBUF_FLAG_IS_CUSTOM == 0, "second pbuf not custom!");
+        ZF_LOGF_IF((uintptr_t) second_pbuf->payload & 0xff != 42, "second pbuf not offset by 42!");
+        ZF_LOGF_IF(first_pbuf->len != 42, "first pbuf not 42!");
+        /* Get the start of the DMA buf */
+        buf = (uintptr_t) second_pbuf->payload & (uintptr_t) (~(0xff));
+        memcpy(buf, p->payload, 42);
+    } else {
+        /* Edge case where lwIP may decide to re-use the zero-copy buffer by
+         * altering its headers */
+        dataport_ptr_t ptr = dataport_wrap_ptr(p->payload);
         if (ptr.id != -1) {
-            /* Zero-copy TX payload */
-            buf = curr->payload;
+            buf = p->payload;
         } else {
             if (state->num_tx == 0) {
                 lwip_recycle_tx_bufs(state, true);
@@ -147,27 +157,23 @@ static err_t lwip_eth_send(struct netif *netif, struct pbuf *p)
                 buf = state->pending_tx[state->num_tx];
             } else {
                 ZF_LOGF("ded");
-                //trace_extra_point_end(0, 1);
                 return ERR_MEM;
             }
 
-            memcpy(buf, curr->payload, curr->len);
+            memcpy(buf, p->payload, p->len);
         }
+    }
 
-        //ps_dma_cache_clean(&state->io_ops->dma_manager, buf, curr->len);
-
-        in_queue++;
-
-        //ZF_LOGE("sending buf = %x", buf);
-        ZF_LOGF_IF(ENCODE_DMA_ADDRESS(buf) == NULL, "encoded DMA buffer is NULL");
-        if (!virtqueue_add_available_buf(&state->tx_virtqueue, &avail_ring, ENCODE_DMA_ADDRESS(buf), curr->len, VQ_RW)) {
-            ZF_LOGF("lwip_eth_send: Error while enqueuing available buffer, queue full");
-        }
+    assert(ENCODE_DMA_ADDRESS(buf));
+    // ZF_LOGF_IF(ENCODE_DMA_ADDRESS(buf) == NULL, "encoded DMA buffer is
+    // NULL");
+    if (!virtqueue_add_available_buf(&state->tx_virtqueue, &avail_ring,
+                                     ENCODE_DMA_ADDRESS(buf), p->tot_len, VQ_RW)) {
+        ZF_LOGF("lwip_eth_send: Error while enqueuing available buffer, queue full");
     }
 
     state->action = true;
 
-    trace_extra_point_end(0, 1);
     return ERR_OK;
 }
 
@@ -198,7 +204,7 @@ static void lwip_rx_free_buf(struct pbuf *buf)
         virtqueue_init_ring_object(&new_ring);
         if (!virtqueue_add_available_buf(&state->rx_virtqueue, &new_ring, ENCODE_DMA_ADDRESS(new_buf), BUF_SIZE, VQ_RW)) {
             state->num_tx++;
-            ZF_LOGF_IF(state->num_tx > NUM_BUFS * 2, "Overruning state->pending_tx");
+            //ZF_LOGF_IF(state->num_tx > NUM_BUFS * 2, "Overruning state->pending_tx");
             //ZF_LOGF("Error while enqueuing available buffer, queue full");
         }
     }
@@ -209,7 +215,6 @@ static void lwip_rx_free_buf(struct pbuf *buf)
 /* Async driver will set a flag to signal that there is work to be done  */
 static void lwip_eth_poll(state_t *state)
 {
-    //trace_extra_point_start(1);
     assert(state);
     while (1) {
         virtqueue_ring_object_t handle;
@@ -235,12 +240,12 @@ static void lwip_eth_poll(state_t *state)
         if (more == 0) {
             ZF_LOGF("pico_eth_poll: Invalid virtqueue ring entry");
         }
-        ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
+        assert(DECODE_DMA_ADDRESS(buf));
+        //ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
 
         err_t err = ERR_OK;
         struct pbuf *p = NULL;
         if (len > 0) {
-            ps_dma_cache_invalidate(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), len);
             /* Zero-copy RX */
             lwip_custom_pbuf_t *custom_pbuf = (lwip_custom_pbuf_t *) LWIP_MEMPOOL_ALLOC(RX_POOL);
             assert(custom_pbuf != NULL);
@@ -249,9 +254,7 @@ static void lwip_eth_poll(state_t *state)
             custom_pbuf->dma_buf = DECODE_DMA_ADDRESS(buf);
             custom_pbuf->is_echo = false;
             struct pbuf *p = pbuf_alloced_custom(PBUF_RAW, len, PBUF_REF, &custom_pbuf->p, custom_pbuf->dma_buf, BUF_SIZE);
-            //trace_extra_point_start(2);
             err = state->netif.input(p, &state->netif);
-            //trace_extra_point_end(2, 1);
             if (err != ERR_OK) {
                 /* Free the pbuf in the common code path instead */
                 break;
@@ -264,7 +267,6 @@ static void lwip_eth_poll(state_t *state)
             pbuf_free(p);
         }
     }
-    //trace_extra_point_end(1, 1);
 }
 
 static void notify_server(UNUSED seL4_Word badge, void *cookie)
@@ -312,20 +314,6 @@ int lwip_ethernet_async_client_init_late(void *cookie, register_callback_handler
 {
     state_t *data = cookie;
     register_handler(0, "lwip_notify_ethernet", notify_server, data);
-
-    /*
-    int error = trace_extra_point_register_name(0, "lwip_eth_send");
-    ZF_LOGF_IF(error, "Failed to register extra trace point 0");
-
-    error = trace_extra_point_register_name(1, "lwip_eth_poll");
-    ZF_LOGF_IF(error, "Failed to register extra trace point 1");
-
-    error = trace_extra_point_register_name(2, "netif.input");
-    ZF_LOGF_IF(error, "Failed to register extra trace point 2");
-
-    error = trace_extra_point_register_name(3, "lwip_eth_send_pbuf_copy");
-    ZF_LOGF_IF(error, "Failed to register extra trace point 3");
-    */
 
     return 0;
 }

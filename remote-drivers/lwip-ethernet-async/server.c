@@ -93,9 +93,11 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
         ZF_LOGF("eth_allocate_rx_buf: Invalid virtqueue ring entry");
     }
 
-    ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
-    uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, DECODE_DMA_ADDRESS(buf), BUF_SIZE);
+    void *decoded_buf = DECODE_DMA_ADDRESS(buf);
+    ZF_LOGF_IF(decoded_buf == NULL, "decoded DMA buffer is NULL");
     *cookie = (void *)(uintptr_t) handle.first;
+    ps_dma_cache_invalidate(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
+    uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
     return phys;
 }
 
@@ -183,10 +185,10 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
                 decoded_buf &= ~(0xff);
                 //ZF_LOGE("contents of decoded_buf = %s", decoded_buf);
             }
-            ps_dma_cache_clean_invalidate(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
             phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
             //ZF_LOGE("before raw_tx buf = %x, pinned buf = %x", decoded_buf, phys_ring[num_bufs]);
             len_ring[num_bufs] = len;
+            ps_dma_cache_clean(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
             num_bufs++;
             ZF_LOGF_IF(num_bufs == 32, "too many bufs to cache");
         }
@@ -202,9 +204,6 @@ static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
             state->blocked_tx = false;
             virtqueue_get_available_buf(&state->tx_virtqueue, &handle);
         }
-    }
-    if (sent > 0) {
-        //ZF_LOGE("sent %d packets", sent);
     }
 }
 
