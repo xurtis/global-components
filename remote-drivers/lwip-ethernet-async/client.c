@@ -97,8 +97,8 @@ static void lwip_recycle_tx_bufs(state_t *state, bool once)
             if (more == 0) {
                 break;
             }
-            assert(DECODE_DMA_ADDRESS(buf) == NULL);
-            //ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
+            // assert(DECODE_DMA_ADDRESS(buf) == NULL);
+            ZF_LOGF_IF(DECODE_DMA_ADDRESS(buf) == NULL, "decoded DMA buffer is NULL");
 
             uintptr_t decoded_buf = DECODE_DMA_ADDRESS(buf);
             /* HACK: lwIP bumps the RX payload to be the start of the UDP
