@@ -18,6 +18,11 @@ DeclareCAmkESComponent(BenchUtiliz SOURCES src/benchUtiliz.c LIBS sel4bench)
 CAmkESAddImportPath(camkes-include)
 CAmkESAddCPPInclude(camkes-include)
 
+add_library(BenchUtiliz-profile EXCLUDE_FROM_ALL ${CMAKE_CURRENT_LIST_DIR}/src/dump_profile.c)
+target_link_libraries(BenchUtiliz-profile sel4prof platsupport)
+# Force the benchutilz_setup_profile_dump constructor to be included in dependants
+target_link_options(BenchUtiliz-profile BEFORE INTERFACE "-Wl,-ubenchutilz_setup_profile_dump")
+
 if(KernelArchARM)
     set(KernelArmExportPMUUser ON CACHE BOOL "" FORCE)
 elseif(KernelArchX86)

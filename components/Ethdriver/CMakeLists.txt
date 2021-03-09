@@ -27,6 +27,8 @@ DeclareCAmkESComponent(
     include
     LIBS
     "${ETHDRIVER_LIBS}"
+    sel4prof
+    BenchUtiliz-profile
 )
 
 DeclareCAmkESComponent(
@@ -38,6 +40,8 @@ DeclareCAmkESComponent(
     include
     LIBS
     "${ETHDRIVER_LIBS}"
+    sel4prof
+    BenchUtiliz-profile
 )
 
 DeclareCAmkESComponent(
@@ -48,6 +52,8 @@ DeclareCAmkESComponent(
     include
     LIBS
     "${ETHDRIVER_LIBS}"
+    sel4prof
+    BenchUtiliz-profile
 )
 
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/src/plat/${KernelPlatform}/plat.c)

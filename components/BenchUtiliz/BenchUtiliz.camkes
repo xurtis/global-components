@@ -33,6 +33,8 @@ component BenchUtiliz {
     emits Trace trace_start;
     emits Trace trace_stop;
 
+    emits DumpProfile next_dump;
+
     dataport Buf bench_buffer;
     dataport Buf dummy;
 

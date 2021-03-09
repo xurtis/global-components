@@ -177,6 +177,7 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
         printf("    %s:%lu\n", counter_names[i], counter_values[i]);
     }
     printf("}\n");
+    next_dump_emit();
     memset(counter_values, 0, 8);
 }
 

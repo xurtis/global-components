@@ -35,3 +35,11 @@ import <BenchUtiliz/BenchUtiliz.camkes>;
 #define BenchUtiliz_trace_configurations(client_name, client, priority) \
     client.client_name##_stop_priority = priority; \
     client.client_name##_start_priority = priority;
+
+
+#define BenchUtiliz_profile_interfaces \
+    maybe consumes DumpProfile prev_dump; \
+    emits DumpProfile next_dump;
+
+#define BenchUtiliz_profile_connections(prev, client) \
+    connection seL4Notification client##_dump_profile_##prev(from prev.next_dump, to client.prev_dump);
