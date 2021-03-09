@@ -19,7 +19,8 @@
 #include <sel4/benchmark_utilisation_types.h>
 #include <camkes/dataport_caps.h>
 #include <string.h>
-//#include <sel4/log.h>
+#include <sel4/log.h>
+#include <sel4debug/logbuffer.h>
 
 #define MAGIC_CYCLES 150
 
@@ -71,6 +72,10 @@ uint64_t idle_overflow_start;
 ccnt_t counter_values[8];
 counter_bitfield_t benchmark_bf;
 
+#if defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
+seL4_LogBuffer log_buffer;
+#endif
+
 void getchar_handler(void)
 {
     seL4_Word badge;
@@ -109,6 +114,8 @@ void idle_start(void)
 #ifdef CONFIG_BENCHMARK_TRACK_UTILISATION
         seL4_BenchmarkResetAllThreadsUtilisation();
         seL4_BenchmarkResetLog();
+#elif defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
+        debug_log_buffer_reset(&log_buffer);
 #endif
         start = (uint64_t)sel4bench_get_cycle_count();
         idle_ccount_start = ccount;
@@ -152,6 +159,12 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
     uint64_t *buffer = (uint64_t *)&seL4_GetIPCBuffer()->msg[0];
     seL4_BenchmarkDumpAllThreadsUtilisation();
     *kernel_ret = buffer[BENCHMARK_TOTAL_KERNEL_UTILISATION];
+#elif defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
+    base64_t streamer = base64_new(stdout);
+    debug_log_buffer_dump_cbor64(&log_buffer, &streamer);
+    base64_terminate(&streamer);
+    putchar('\n');
+    debug_log_buffer_reset(&log_buffer);
 #else
     *kernel_ret = 0;
 #endif
@@ -212,6 +225,12 @@ void pre_init(void)
     seL4_Error sel4_err = seL4_BenchmarkSetLogBuffer(log_cap);
     ZF_LOGF_IF(sel4_err != seL4_NoError, "Failed to set log buffer");
     */
+#if defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
+    seL4_CPtr log_cap = dataport_get_nth_frame_cap(&bench_buffer_handle, 0);
+    seL4_Error sel4_err = seL4_BenchmarkSetLogBuffer(log_cap);
+    log_buffer = seL4_LogBuffer_new(bench_buffer);
+    ZF_LOGF_IF(sel4_err != seL4_NoError, "Failed to set log buffer");
+#endif
 
     int err = bench_to_reg_callback(&count_idle, NULL);
     if (err) {

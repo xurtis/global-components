@@ -33,17 +33,17 @@ component BenchUtiliz {
     emits Trace trace_start;
     emits Trace trace_stop;
 
-    //dataport Buf bench_buffer;
-    //dataport Buf temp;
+    dataport Buf bench_buffer;
+    dataport Buf dummy;
 
     attribute int bench_to_priority = 1;
 
     composition {
         connection seL4Notification idle_thread(from bench_from, to bench_to);
-        //connection seL4SharedDataWithCaps bench_buf(from bench_buffer, to temp);
+        connection seL4SharedDataWithCaps bench_buf(from bench_buffer, to dummy);
     }
 
     configuration {
-        //bench_buf.size = 1073741824;
+        bench_buf.size = 2097152;
     }
 }
