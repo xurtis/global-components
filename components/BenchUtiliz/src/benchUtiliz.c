@@ -110,9 +110,13 @@ void idle_start(void)
         printf("Measurment starting...\n");
         sel4bench_reset_counters();
         sel4bench_start_counters(benchmark_bf);
+        next_dump_emit();
+        prev_dump_wait();
         trace_start_emit();
 #ifdef CONFIG_BENCHMARK_TRACK_UTILISATION
+#ifdef CONFIG_DEBUG_BUILD
         seL4_BenchmarkResetAllThreadsUtilisation();
+#endif
         seL4_BenchmarkResetLog();
 #elif defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
         debug_log_buffer_reset(&log_buffer);
@@ -157,7 +161,9 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
 
     seL4_BenchmarkGetThreadUtilisation(camkes_get_tls()->tcb_cap);
     uint64_t *buffer = (uint64_t *)&seL4_GetIPCBuffer()->msg[0];
+#ifdef CONFIG_DEBUG_BUILD
     seL4_BenchmarkDumpAllThreadsUtilisation();
+#endif
     *kernel_ret = buffer[BENCHMARK_TOTAL_KERNEL_UTILISATION];
 #elif defined(CONFIG_KERNEL_DEBUG_LOG_BUFFER)
     base64_t streamer = base64_new(stdout);
@@ -178,6 +184,7 @@ void idle_stop(uint64_t *total_ret, uint64_t *kernel_ret, uint64_t *idle_ret)
     }
     printf("}\n");
     next_dump_emit();
+    prev_dump_wait();
     memset(counter_values, 0, 8);
 }
 

@@ -48,6 +48,8 @@ target_link_libraries(
     lwip-ethernet-async
     ethdrivers
     LWIPServer-client
+    sel4prof
+    BenchUtiliz-profile
 )
 
 add_library(lwip-ethernet-async-client EXCLUDE_FROM_ALL client.c)
@@ -57,4 +59,5 @@ target_link_libraries(
     lwip-ethernet-async
     lwip
     LWIPServer-client
+    sel4prof
 )

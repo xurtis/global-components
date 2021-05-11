@@ -20,6 +20,9 @@ void next_dump_emit(void);
 SEL4PROF_NO_INSTRUMENT
 static void handle_dump(void *_arg)
 {
+    /* Re-register callback */
+    prev_dump_reg_callback(handle_dump, NULL);
+
     /* Dump this component */
     prof_dump();
 
