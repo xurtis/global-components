@@ -11,7 +11,9 @@
  */
 
 #include <autoconf.h>
+#include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <camkes/dma.h>
@@ -29,10 +31,11 @@
 #include <virtqueue.h>
 #include <lwip-ethernet-async.h>
 
-int no_more_bufs = 0;
+#include <utils/util.h>
 
-static uintptr_t phys_ring[32];
-static unsigned int len_ring[32];
+#define BULK_TX_SIZE 32
+static uintptr_t phys_ring[BULK_TX_SIZE];
+static unsigned int len_ring[BULK_TX_SIZE];
 
 typedef struct tx_cookie {
     size_t num_handles;
@@ -43,9 +46,6 @@ typedef struct data {
     ps_io_ops_t *io_ops;
     virtqueue_device_t tx_virtqueue;
     virtqueue_device_t rx_virtqueue;
-    bool action;
-    bool no_rx_bufs;
-    bool blocked_tx;
     uint8_t hw_mac[6];
     struct eth_driver *eth_driver;
 } server_data_t;
@@ -55,18 +55,29 @@ typedef struct data {
 static void eth_tx_complete(void *iface, void *cookie)
 {
     server_data_t *state = iface;
-
     uint32_t first = (uint32_t) ((uintptr_t) cookie);
 
     virtqueue_ring_object_t handle;
     handle.first = first;
     handle.cur = first;
 
-    if (!virtqueue_add_used_buf(&state->tx_virtqueue, &handle, BUF_SIZE)) {
-        ZF_LOGF("eth_tx_complete: Error while enqueuing used buffer, queue full");
+    void *buf;
+    unsigned len;
+    vq_flags_t flag;
+    int index = handle.cur;
+    while (virtqueue_gather_available(&state->tx_virtqueue, &handle, &buf, &len, &flag)) {
+        virtqueue_ring_object_t free_handle = {
+            .first = index,
+            .cur = index,
+        };
+        int err = virtqueue_add_used_buf(&state->tx_virtqueue, &free_handle, len);
+        ZF_LOGF_IF(err == 0, "eth_tx_complete: Error while enqueuing used buffer, queue full");
+        index = handle.cur;
     }
 
-    state->action = true;
+    /* Notify that packets have been transmitted or dropped and buffers can be
+     * reused */
+    state->tx_virtqueue.notify();
 }
 
 static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie)
@@ -79,13 +90,11 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
     virtqueue_ring_object_t handle;
 
     if (virtqueue_get_available_buf(&state->rx_virtqueue, &handle) == 0) {
-        no_more_bufs = (no_more_bufs + 1) % 10;
         // No buffer available to fill RX ring with.
-        state->no_rx_bufs = true;
         return 0;
     }
-    state->no_rx_bufs = false;
-    uint64_t buf;
+
+    void *buf;
     unsigned len;
     vq_flags_t flag;
     int more = virtqueue_gather_available(&state->rx_virtqueue, &handle, &buf, &len, &flag);
@@ -96,35 +105,24 @@ static uintptr_t eth_allocate_rx_buf(void *iface, size_t buf_size, void **cookie
     void *decoded_buf = DECODE_DMA_ADDRESS(buf);
     ZF_LOGF_IF(decoded_buf == NULL, "decoded DMA buffer is NULL");
     *cookie = (void *)(uintptr_t) handle.first;
-    ps_dma_cache_invalidate(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
-    uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
+    ps_dma_cache_invalidate(&state->io_ops->dma_manager, decoded_buf, buf_size);
+    uintptr_t phys = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, buf_size);
     return phys;
 }
 
 static void eth_rx_complete(void *iface, unsigned int num_bufs, void **cookies, unsigned int *lens)
 {
     server_data_t *state = iface;
-    /* insert filtering here. currently everything just goes to one client */
-    if (num_bufs != 1) {
-        ZF_LOGE("Dropping packets because num_received didn't match descriptor");
-        for (int i = 0; i < num_bufs; i++) {
-            virtqueue_ring_object_t handle;
-            handle.first = (uintptr_t)cookies[i];
-            handle.cur = (uintptr_t)cookies[i];
-            if (!virtqueue_add_used_buf(&state->rx_virtqueue, &handle, 0)) {
-                ZF_LOGF("eth_rx_complete: Error while enqueuing used buffer, queue full");
-            }
-        }
-        return;
+    for (int i = 0; i < num_bufs; i++) {
+        virtqueue_ring_object_t handle;
+        handle.first = (uintptr_t)cookies[i];
+        handle.cur = (uintptr_t)cookies[i];
+        int err = virtqueue_add_used_buf(&state->rx_virtqueue, &handle, lens[i]);
+        ZF_LOGF_IF(err == 0, "eth_rx_complete: Error while enqueuing used buffer, queue full");
+    }
 
-    }
-    virtqueue_ring_object_t handle;
-    handle.first = (uintptr_t)cookies[0];
-    handle.cur = (uintptr_t)cookies[0];
-    if (!virtqueue_add_used_buf(&state->rx_virtqueue, &handle, lens[0])) {
-        ZF_LOGF("eth_rx_complete: Error while enqueuing used buffer, queue full");
-    }
-    state->action = true;
+    // Notify that we've added received packets
+    state->rx_virtqueue.notify();
     return;
 }
 
@@ -133,8 +131,6 @@ static struct raw_iface_callbacks ethdriver_callbacks = {
     .rx_complete = eth_rx_complete,
     .allocate_rx_buf = eth_allocate_rx_buf
 };
-
-
 
 static void client_get_mac(uint8_t *b1, uint8_t *b2, uint8_t *b3, uint8_t *b4, uint8_t *b5, uint8_t *b6, void *cookie)
 {
@@ -147,79 +143,69 @@ static void client_get_mac(uint8_t *b1, uint8_t *b2, uint8_t *b3, uint8_t *b4, u
     *b6 = state->hw_mac[5];
 }
 
-static void virt_queue_handle_irq(seL4_Word badge, void *cookie)
+static void rx_queue_notify(seL4_Word badge, void *cookie)
 {
-    int sent = 0;
+    /* More available buffers so we poll to refill */
     server_data_t *state = cookie;
-    if (state->no_rx_bufs) {
-        state->eth_driver->i_fn.raw_poll(state->eth_driver);
-    }
-    while (1) {
-        virtqueue_ring_object_t handle;
 
-        unsigned next = (state->tx_virtqueue.a_ring_last_seen + 1) & (state->tx_virtqueue.queue_len - 1);
+    state->eth_driver->i_fn.raw_poll(state->eth_driver);
+}
 
-        if (next == state->tx_virtqueue.avail_ring->idx) {
-            break;
-        }
-        handle.first = state->tx_virtqueue.avail_ring->ring[next];
-        handle.cur = handle.first;
+static void tx_queue_notify(seL4_Word badge, void *cookie)
+{
+    /* We have packets that need to be sent */
+    server_data_t *state = cookie;
 
-        void *cookie = (void *) (uintptr_t) handle.first;
-
-        uint64_t buf;
+    virtqueue_ring_object_t handle;
+    while (virtqueue_get_available_buf(&state->tx_virtqueue, &handle)) {
+        void *buf;
         unsigned len;
         vq_flags_t flag;
-        int num_bufs = 0;
-        uintptr_t decoded_buf;
 
+        /*
+         * If the largest pbuf is a custom pbuf and the remaining pbufs can
+         * be packed around it into the allocation, they are copied into the
+         * ethernet frame, otherwise we allocate a new buffer and copy
+         * everything.
+         */
+
+        size_t collected = 0;
         while (virtqueue_gather_available(&state->tx_virtqueue, &handle, &buf, &len, &flag)) {
-            decoded_buf = DECODE_DMA_ADDRESS(buf);
+            void *decoded_buf = DECODE_DMA_ADDRESS(buf);
             ZF_LOGF_IF(decoded_buf == NULL, "decoded DMA buffer is NULL");
+
             /* HACK: Align the buffers for any zero-copy buffers
              * The sabre platform requires that buffers have to be aligned to
              * 8-bytes, so we memmove the contents of the buffer to the start of
              * the DMA frame which should be aligned to a 2048 boundary */
-            if (decoded_buf & 0xff) {
-                memmove(decoded_buf & ~(0xff), decoded_buf, len);
-                decoded_buf &= ~(0xff);
-                //ZF_LOGE("contents of decoded_buf = %s", decoded_buf);
+            void *moved_buf = (void *)(((uintptr_t)decoded_buf) & (8 - 1));
+            if (((uintptr_t)decoded_buf) & (8 - 1)) {
+                memmove(moved_buf, decoded_buf, len);
+                decoded_buf = moved_buf;
             }
-            phys_ring[num_bufs] = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
-            //ZF_LOGE("before raw_tx buf = %x, pinned buf = %x", decoded_buf, phys_ring[num_bufs]);
-            len_ring[num_bufs] = len;
-            ps_dma_cache_clean(&state->io_ops->dma_manager, decoded_buf, BUF_SIZE);
-            num_bufs++;
-            ZF_LOGF_IF(num_bufs == 32, "too many bufs to cache");
+
+            phys_ring[collected] = ps_dma_pin(&state->io_ops->dma_manager, decoded_buf, len);
+            len_ring[collected] = len;
+            ps_dma_cache_clean(&state->io_ops->dma_manager, decoded_buf, len);
+
+            collected += 1;
+            if (collected > BULK_TX_SIZE) {
+                // Drop the packet as it is in too many parts
+                collected = 0;
+                break;
+            }
         }
 
-        sent += num_bufs;
+        int err;
+        if (collected > 0) {
+            err = state->eth_driver->i_fn.raw_tx(state->eth_driver, collected, phys_ring, len_ring, (void *)handle.first);
+        }
 
-        int err = state->eth_driver->i_fn.raw_tx(state->eth_driver, num_bufs, phys_ring, len_ring, cookie);
-
-        if (err != ETHIF_TX_ENQUEUED) {
-            state->blocked_tx = true;
-            break;
-        } else {
-            state->blocked_tx = false;
-            virtqueue_get_available_buf(&state->tx_virtqueue, &handle);
+        if (collected == 0 || err != ETHIF_TX_ENQUEUED) {
+            eth_tx_complete(state, (void *)handle.first);
         }
     }
 }
-
-
-static void notify_client(UNUSED seL4_Word badge, void *cookie)
-{
-    server_data_t *state = cookie;
-    if (state->action) {
-        if (state->blocked_tx) {
-            virt_queue_handle_irq(badge, cookie);
-        }
-        state->action = false;
-        state->tx_virtqueue.notify();
-    }
-}
-
 
 static int hardware_interface_searcher(void *cookie, void *interface_instance, char **properties)
 {
@@ -263,19 +249,15 @@ int lwip_ethernet_async_server_init(ps_io_ops_t *io_ops, const char *tx_virtqueu
         ZF_LOGE("Unable to initialise serial server write virtqueue");
     }
 
-    error = register_handler(tx_badge, "lwip_tx_irq", virt_queue_handle_irq, data);
+    error = register_handler(tx_badge, "lwip_tx_irq", tx_queue_notify, data);
     if (error) {
         ZF_LOGE("Unable to register handler");
     }
-    error = register_handler(rx_badge, "lwip_rx_irq", virt_queue_handle_irq, data);
+    error = register_handler(rx_badge, "lwip_rx_irq", rx_queue_notify, data);
     if (error) {
         ZF_LOGE("Unable to register handler");
     }
-
-    error = register_handler(0, "lwip_notify_client", notify_client, data);
-    if (error) {
-        ZF_LOGE("Unable to register handler");
-    }
+    rx_queue_notify(rx_badge, data);
 
     data->eth_driver->i_fn.get_mac(data->eth_driver, data->hw_mac);
     data->eth_driver->i_fn.raw_poll(data->eth_driver);
